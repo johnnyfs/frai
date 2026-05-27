@@ -1,0 +1,62 @@
+import curses
+
+from src.core.actions import Action, CharacterCreationCommand, MoveAttempt, QuitConfirm, QuitRequest
+from src.core.entity import EntityId
+from src.core.modes import CharacterCreationMode, ConfirmQuitMode, GameMode, NormalMode
+
+MOVE_KEYS: dict[str, tuple[int, int]] = {
+    "h": (-1, 0),
+    "j": (0, 1),
+    "k": (0, -1),
+    "l": (1, 0),
+    "y": (-1, -1),
+    "u": (1, -1),
+    "b": (-1, 1),
+    "n": (1, 1),
+}
+
+
+def _key_name(key: int) -> str | None:
+    if key == curses.KEY_RESIZE:
+        return "resize"
+    if 0 <= key <= 255:
+        try:
+            return chr(key).lower()
+        except ValueError:
+            return None
+    return None
+
+
+def map_key(key: int, mode: GameMode, player: EntityId) -> Action | None:
+    key_name = _key_name(key)
+    if key_name == "resize":
+        return None
+
+    if isinstance(mode, CharacterCreationMode):
+        if key in (curses.KEY_BACKSPACE, 8, 127) or key_name == "b":
+            return CharacterCreationCommand("back", mode.state)
+        if key_name == "r":
+            return CharacterCreationCommand("reroll", mode.state)
+        if key_name == "y":
+            return CharacterCreationCommand("confirm", mode.state)
+        if key_name is not None and len(key_name) == 1 and key_name.isalpha():
+            return CharacterCreationCommand("choose", mode.state, key_name)
+        return None
+
+    if key_name is None:
+        return None
+
+    if isinstance(mode, NormalMode):
+        if key_name in MOVE_KEYS:
+            dx, dy = MOVE_KEYS[key_name]
+            return MoveAttempt(actor=player, dx=dx, dy=dy)
+        if key_name == "q":
+            return QuitRequest()
+
+    if isinstance(mode, ConfirmQuitMode):
+        if key_name == "y":
+            return QuitConfirm(True)
+        if key_name == "n":
+            return QuitConfirm(False)
+
+    return None
