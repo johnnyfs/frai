@@ -34,4 +34,29 @@ class SetCharacterSheet:
     sheet: CharacterSheet
 
 
-Effect: TypeAlias = MoveEntity | EmitMessage | SetMode | QuitGame | SetCharacterSheet
+@dataclass(frozen=True, slots=True)
+class DamageEntity:
+    entity: EntityId
+    amount: int
+
+
+@dataclass(frozen=True, slots=True)
+class KillEntity:
+    entity: EntityId
+
+
+@dataclass(frozen=True, slots=True)
+class RestartGame:
+    pass
+
+
+Effect: TypeAlias = (
+    MoveEntity
+    | EmitMessage
+    | SetMode
+    | QuitGame
+    | SetCharacterSheet
+    | DamageEntity
+    | KillEntity
+    | RestartGame
+)

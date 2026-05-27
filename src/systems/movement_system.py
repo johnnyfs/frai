@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from src.core.actions import Action, MoveAttempt
+from src.core.actions import Action, AttackAttempt, MoveAttempt
 from src.core.dispatcher import DispatchResult
 from src.core.effects import EmitMessage, MoveEntity
 from src.core.entity import EntityId
@@ -41,6 +41,10 @@ class MovementSystem:
             return DispatchResult()
 
         context = self.context_resolver.resolve(action, world)
+        target = _hostile_target(action.actor, context.destination_entities, world)
+        if target is not None:
+            return DispatchResult(replacement=AttackAttempt(action.actor, target))
+
         obstruction = self.obstruction.movement_allowed(
             world, context.destination_x, context.destination_y
         )
@@ -57,3 +61,15 @@ class MovementSystem:
             ],
             cancel=True,
         )
+
+
+def _hostile_target(actor: EntityId, entities: list[EntityId], world: World) -> EntityId | None:
+    actor_faction = world.factions.get(actor)
+    if actor_faction is None:
+        return None
+    for entity in entities:
+        target_faction = world.factions.get(entity)
+        if target_faction is not None and target_faction.value != actor_faction.value:
+            if world.combat_stats.has(entity):
+                return entity
+    return None

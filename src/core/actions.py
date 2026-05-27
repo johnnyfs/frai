@@ -29,4 +29,28 @@ class CharacterCreationCommand:
     key: str | None = None
 
 
-Action: TypeAlias = MoveAttempt | QuitRequest | QuitConfirm | CharacterCreationCommand
+@dataclass(frozen=True, slots=True)
+class AttackAttempt:
+    actor: EntityId
+    target: EntityId
+
+
+@dataclass(frozen=True, slots=True)
+class StartChoice:
+    create: bool
+
+
+@dataclass(frozen=True, slots=True)
+class GameOverChoice:
+    restart: bool
+
+
+Action: TypeAlias = (
+    MoveAttempt
+    | QuitRequest
+    | QuitConfirm
+    | CharacterCreationCommand
+    | AttackAttempt
+    | StartChoice
+    | GameOverChoice
+)

@@ -1,7 +1,7 @@
-from src.core.actions import CharacterCreationCommand, MoveAttempt, QuitConfirm, QuitRequest
+from src.core.actions import CharacterCreationCommand, MoveAttempt, QuitConfirm, QuitRequest, StartChoice
 from src.core.character_creation import initial_character_creation_state
 from src.core.entity import EntityId
-from src.core.modes import CharacterCreationMode, ConfirmQuitMode, NormalMode
+from src.core.modes import CharacterCreationMode, ConfirmQuitMode, NormalMode, StartChoiceMode
 from src.systems.input_system import map_key
 
 
@@ -22,6 +22,14 @@ def test_confirm_quit_mode_maps_answers() -> None:
 
     assert map_key(ord("y"), ConfirmQuitMode(), player) == QuitConfirm(True)
     assert map_key(ord("n"), ConfirmQuitMode(), player) == QuitConfirm(False)
+
+
+def test_start_choice_mode_maps_create_and_yolo() -> None:
+    player = EntityId(1)
+
+    assert map_key(ord("c"), StartChoiceMode(), player) == StartChoice(create=True)
+    assert map_key(ord("y"), StartChoiceMode(), player) == StartChoice(create=False)
+    assert map_key(ord("q"), StartChoiceMode(), player) == QuitRequest()
 
 
 def test_character_creation_mode_maps_navigation_to_commands() -> None:

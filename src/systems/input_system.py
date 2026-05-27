@@ -1,8 +1,23 @@
 import curses
 
-from src.core.actions import Action, CharacterCreationCommand, MoveAttempt, QuitConfirm, QuitRequest
+from src.core.actions import (
+    Action,
+    CharacterCreationCommand,
+    GameOverChoice,
+    MoveAttempt,
+    QuitConfirm,
+    QuitRequest,
+    StartChoice,
+)
 from src.core.entity import EntityId
-from src.core.modes import CharacterCreationMode, ConfirmQuitMode, GameMode, NormalMode
+from src.core.modes import (
+    CharacterCreationMode,
+    ConfirmQuitMode,
+    GameMode,
+    GameOverMode,
+    NormalMode,
+    StartChoiceMode,
+)
 
 MOVE_KEYS: dict[str, tuple[int, int]] = {
     "h": (-1, 0),
@@ -30,6 +45,22 @@ def _key_name(key: int) -> str | None:
 def map_key(key: int, mode: GameMode, player: EntityId) -> Action | None:
     key_name = _key_name(key)
     if key_name == "resize":
+        return None
+
+    if isinstance(mode, StartChoiceMode):
+        if key_name == "c":
+            return StartChoice(create=True)
+        if key_name == "y":
+            return StartChoice(create=False)
+        if key_name == "q":
+            return QuitRequest()
+        return None
+
+    if isinstance(mode, GameOverMode):
+        if key_name == "r":
+            return GameOverChoice(restart=True)
+        if key_name == "q":
+            return GameOverChoice(restart=False)
         return None
 
     if isinstance(mode, CharacterCreationMode):

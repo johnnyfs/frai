@@ -11,9 +11,9 @@ from src.core.character_creation import (
     step_title,
     total_attributes,
 )
-from src.core.config import MIN_TERMINAL_HEIGHT, MIN_TERMINAL_WIDTH
+from src.core.config import MIN_TERMINAL_HEIGHT, MIN_TERMINAL_WIDTH, PLAYFIELD_WIDTH
 from src.core.entity import EntityId
-from src.core.modes import CharacterCreationMode, GameMode
+from src.core.modes import CharacterCreationMode, GameMode, GameOverMode, StartChoiceMode
 from src.core.world import World
 from src.map.tiles import TileKind
 from src.systems.message_system import MessageState
@@ -56,13 +56,21 @@ def render(
         screen.refresh()
         return
 
+    if isinstance(mode, StartChoiceMode):
+        _render_start_choice(screen, layout)
+        return
+
+    if isinstance(mode, GameOverMode):
+        _render_game_over(screen, layout)
+        return
+
     if isinstance(mode, CharacterCreationMode):
         _render_character_creation(screen, layout, mode)
         return
 
     screen.print_line(
         layout.message_y,
-        messages.current[: layout.playfield_width].ljust(layout.playfield_width),
+        _message_line(messages),
         layout.origin_x,
     )
 
@@ -79,6 +87,31 @@ def render(
 
 def _line(screen: Screen, layout: Layout, row: int, text: str = "") -> None:
     screen.print_line(row, text[: layout.playfield_width].ljust(layout.playfield_width), layout.origin_x)
+
+
+def _message_line(messages: MessageState) -> str:
+    if messages.awaiting_more:
+        suffix = " -- press any key to continue --"
+        return (messages.current[: max(0, PLAYFIELD_WIDTH - len(suffix))] + suffix).ljust(PLAYFIELD_WIDTH)
+    return messages.current[:PLAYFIELD_WIDTH].ljust(PLAYFIELD_WIDTH)
+
+
+def _render_start_choice(screen: Screen, layout: Layout) -> None:
+    _line(screen, layout, layout.message_y, "Welcome")
+    _line(screen, layout, layout.map_top + 3, "c - Create a character")
+    _line(screen, layout, layout.map_top + 4, "y - YOLO")
+    _line(screen, layout, layout.map_top + 5, "q - Quit")
+    _line(screen, layout, layout.status_y, "single-key choice")
+    screen.refresh()
+
+
+def _render_game_over(screen: Screen, layout: Layout) -> None:
+    _line(screen, layout, layout.message_y, "Game over")
+    _line(screen, layout, layout.map_top + 3, "You die.")
+    _line(screen, layout, layout.map_top + 5, "r - Restart")
+    _line(screen, layout, layout.map_top + 6, "q - Quit")
+    _line(screen, layout, layout.status_y, "single-key choice")
+    screen.refresh()
 
 
 def _render_character_creation(

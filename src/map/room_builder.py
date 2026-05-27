@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
-from src.core.components import Name, PlayerControlled, Position, Presentation
+from src.core.combat import goblin_stats, weapon_for_name
+from src.core.components import BlocksMovement, Faction, Name, PlayerControlled, Position, Presentation
 from src.core.entity import EntityId
 from src.core.world import World
 from src.map.tiles import FLOOR, HORIZONTAL_WALL, OUTSIDE, VERTICAL_WALL, Tile
@@ -38,4 +39,16 @@ def build_room_world(width: int, height: int) -> BuiltRoom:
     world.presentations.add(player, Presentation("@"))
     world.player_controlled.add(player, PlayerControlled())
     world.names.add(player, Name("you"))
+    world.factions.add(player, Faction("player"))
+
+    goblin = world.create_entity()
+    center_x = (left + right) // 2
+    center_y = (top + bottom) // 2
+    world.positions.add(goblin, Position(x=min(center_x + 5, right - 1), y=center_y))
+    world.presentations.add(goblin, Presentation("o"))
+    world.blockers.add(goblin, BlocksMovement("occupied"))
+    world.names.add(goblin, Name("goblin"))
+    world.factions.add(goblin, Faction("enemy"))
+    world.combat_stats.add(goblin, goblin_stats())
+    world.weapons.add(goblin, weapon_for_name("dagger"))
     return BuiltRoom(world=world, player=player)

@@ -19,4 +19,16 @@ class CharacterCreationMode:
     state: CharacterCreationState
 
 
-GameMode: TypeAlias = NormalMode | ConfirmQuitMode | CharacterCreationMode
+@dataclass(frozen=True, slots=True)
+class StartChoiceMode:
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class GameOverMode:
+    pass
+
+
+GameMode: TypeAlias = (
+    NormalMode | ConfirmQuitMode | CharacterCreationMode | StartChoiceMode | GameOverMode
+)

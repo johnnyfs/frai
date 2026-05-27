@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Generic, TypeVar
 
-from src.core.components import BlocksMovement, Character, Name, PlayerControlled, Position, Presentation
+from src.core.components import Armor, BlocksMovement, Character, CombatStats, Faction, Name, PlayerControlled, Position, Presentation, Weapon
 from src.core.entity import EntityId
 from src.map.tiles import OUTSIDE, Tile
 
@@ -55,6 +55,10 @@ class World:
     )
     names: ComponentStore[Name] = field(default_factory=lambda: ComponentStore({}))
     characters: ComponentStore[Character] = field(default_factory=lambda: ComponentStore({}))
+    combat_stats: ComponentStore[CombatStats] = field(default_factory=lambda: ComponentStore({}))
+    weapons: ComponentStore[Weapon] = field(default_factory=lambda: ComponentStore({}))
+    armor: ComponentStore[Armor] = field(default_factory=lambda: ComponentStore({}))
+    factions: ComponentStore[Faction] = field(default_factory=lambda: ComponentStore({}))
 
     def create_entity(self) -> EntityId:
         entity = EntityId(self.next_entity_id)
@@ -88,3 +92,22 @@ class World:
         for entity in self.player_controlled.values:
             return entity
         raise LookupError("World has no player-controlled entity.")
+
+    def remove_entity(self, entity: EntityId) -> None:
+        for store in (
+            self.positions,
+            self.presentations,
+            self.blockers,
+            self.player_controlled,
+            self.names,
+            self.characters,
+            self.combat_stats,
+            self.weapons,
+            self.armor,
+            self.factions,
+        ):
+            store.values.pop(entity, None)
+
+    def name_for(self, entity: EntityId) -> str:
+        name = self.names.get(entity)
+        return name.value if name is not None else f"entity {int(entity)}"
