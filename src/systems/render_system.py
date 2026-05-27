@@ -13,10 +13,10 @@ from src.core.character_creation import (
 )
 from src.core.config import MIN_TERMINAL_HEIGHT, MIN_TERMINAL_WIDTH, PLAYFIELD_WIDTH
 from src.core.entity import EntityId
-from src.core.modes import CharacterCreationMode, GameMode, GameOverMode, StartChoiceMode
+from src.core.modes import CharacterCreationMode, GameMode, GameOverMode, InventoryMode, StartChoiceMode
 from src.core.world import World
 from src.map.tiles import TileKind
-from src.systems.message_system import MessageState
+from src.systems.message_system import MORE_PROMPT, MessageState
 from src.ui.layout import Layout
 from src.ui.screen import Screen
 
@@ -47,6 +47,7 @@ def render(
     observer: EntityId,
     messages: MessageState,
     mode: GameMode,
+    focus: EntityId | None = None,
 ) -> None:
     screen.clear()
     layout = Layout(width=screen.width, height=screen.height)
@@ -68,20 +69,34 @@ def render(
         _render_character_creation(screen, layout, mode)
         return
 
+    if isinstance(mode, InventoryMode):
+        _render_inventory(screen, layout, world, observer)
+        return
+
     screen.print_line(
         layout.message_y,
         _message_line(messages),
         layout.origin_x,
     )
 
+    viewport_x, viewport_y = _viewport_origin(
+        world,
+        layout,
+        focus if focus is not None else observer,
+    )
     for screen_y in range(layout.map_top, layout.map_bottom + 1):
-        world_y = screen_y - layout.map_top
-        for world_x in range(layout.playfield_width):
-            screen_x = layout.origin_x + world_x
+        world_y = viewport_y + screen_y - layout.map_top
+        for viewport_column in range(layout.playfield_width):
+            world_x = viewport_x + viewport_column
+            screen_x = layout.origin_x + viewport_column
             glyph = presentation_for(observer, world, world_x, world_y)
             screen.draw_char(screen_x, screen_y, glyph.char)
 
-    screen.print_line(layout.status_y, "Status".ljust(layout.playfield_width), layout.origin_x)
+    screen.print_line(
+        layout.status_y,
+        _status_line(world, observer).ljust(layout.playfield_width),
+        layout.origin_x,
+    )
     screen.refresh()
 
 
@@ -89,11 +104,52 @@ def _line(screen: Screen, layout: Layout, row: int, text: str = "") -> None:
     screen.print_line(row, text[: layout.playfield_width].ljust(layout.playfield_width), layout.origin_x)
 
 
+def _viewport_origin(world: World, layout: Layout, focus: EntityId) -> tuple[int, int]:
+    position = world.positions.get(focus)
+    if position is None:
+        return 0, 0
+    max_x = max(0, world.width - layout.playfield_width)
+    max_y = max(0, world.height - layout.playfield_height)
+    origin_x = min(max(0, position.x - layout.playfield_width // 2), max_x)
+    origin_y = min(max(0, position.y - layout.playfield_height // 2), max_y)
+    return origin_x, origin_y
+
+
 def _message_line(messages: MessageState) -> str:
     if messages.awaiting_more:
-        suffix = " -- press any key to continue --"
-        return (messages.current[: max(0, PLAYFIELD_WIDTH - len(suffix))] + suffix).ljust(PLAYFIELD_WIDTH)
+        suffix = f" {MORE_PROMPT}"
+        return (messages.current[: max(0, PLAYFIELD_WIDTH - len(suffix))] + suffix).ljust(
+            PLAYFIELD_WIDTH
+        )
     return messages.current[:PLAYFIELD_WIDTH].ljust(PLAYFIELD_WIDTH)
+
+
+def _status_line(world: World, observer: EntityId) -> str:
+    stats = world.combat_stats.get(observer)
+    if stats is None:
+        return "HP -/-  AC -"
+    return f"HP {stats.hit_points}/{stats.max_hit_points}  AC {stats.armor_class}"
+
+
+def _inventory_lines(world: World, entity: EntityId) -> list[str]:
+    lines: list[str] = []
+    armor = world.armor.get(entity)
+    weapon = world.weapons.get(entity)
+    if armor is not None and armor.name != "none":
+        lines.append(f"Armor  - {armor.name} (worn)")
+    if weapon is not None:
+        lines.append(f"Weapon - {weapon.name} (in hand)")
+    return lines or ["Nothing."]
+
+
+def _render_inventory(screen: Screen, layout: Layout, world: World, observer: EntityId) -> None:
+    _line(screen, layout, layout.message_y, "Inventory")
+    _line(screen, layout, layout.map_top + 1, "Items carried")
+    _line(screen, layout, layout.map_top + 2, "-" * layout.playfield_width)
+    for index, line in enumerate(_inventory_lines(world, observer)):
+        _line(screen, layout, layout.map_top + 4 + index, line)
+    _line(screen, layout, layout.status_y, "i/q/b close")
+    screen.refresh()
 
 
 def _render_start_choice(screen: Screen, layout: Layout) -> None:

@@ -3,7 +3,9 @@ import curses
 from src.core.actions import (
     Action,
     CharacterCreationCommand,
+    CloseInventory,
     GameOverChoice,
+    InventoryRequest,
     MoveAttempt,
     QuitConfirm,
     QuitRequest,
@@ -15,6 +17,7 @@ from src.core.modes import (
     ConfirmQuitMode,
     GameMode,
     GameOverMode,
+    InventoryMode,
     NormalMode,
     StartChoiceMode,
 )
@@ -63,6 +66,11 @@ def map_key(key: int, mode: GameMode, player: EntityId) -> Action | None:
             return GameOverChoice(restart=False)
         return None
 
+    if isinstance(mode, InventoryMode):
+        if key_name in ("i", "q", "b"):
+            return CloseInventory()
+        return None
+
     if isinstance(mode, CharacterCreationMode):
         if key in (curses.KEY_BACKSPACE, 8, 127) or key_name == "b":
             return CharacterCreationCommand("back", mode.state)
@@ -78,6 +86,8 @@ def map_key(key: int, mode: GameMode, player: EntityId) -> Action | None:
         return None
 
     if isinstance(mode, NormalMode):
+        if key_name == "i":
+            return InventoryRequest()
         if key_name in MOVE_KEYS:
             dx, dy = MOVE_KEYS[key_name]
             return MoveAttempt(actor=player, dx=dx, dy=dy)

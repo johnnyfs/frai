@@ -45,6 +45,16 @@ class GameOverChoice:
     restart: bool
 
 
+@dataclass(frozen=True, slots=True)
+class InventoryRequest:
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class CloseInventory:
+    pass
+
+
 Action: TypeAlias = (
     MoveAttempt
     | QuitRequest
@@ -53,4 +63,6 @@ Action: TypeAlias = (
     | AttackAttempt
     | StartChoice
     | GameOverChoice
+    | InventoryRequest
+    | CloseInventory
 )

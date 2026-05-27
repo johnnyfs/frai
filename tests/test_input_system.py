@@ -1,7 +1,7 @@
-from src.core.actions import CharacterCreationCommand, MoveAttempt, QuitConfirm, QuitRequest, StartChoice
+from src.core.actions import CharacterCreationCommand, CloseInventory, InventoryRequest, MoveAttempt, QuitConfirm, QuitRequest, StartChoice
 from src.core.character_creation import initial_character_creation_state
 from src.core.entity import EntityId
-from src.core.modes import CharacterCreationMode, ConfirmQuitMode, NormalMode, StartChoiceMode
+from src.core.modes import CharacterCreationMode, ConfirmQuitMode, InventoryMode, NormalMode, StartChoiceMode
 from src.systems.input_system import map_key
 
 
@@ -15,6 +15,15 @@ def test_normal_mode_maps_hjkl_yubn_to_move_attempts() -> None:
 
 def test_normal_mode_maps_q_to_quit_request() -> None:
     assert map_key(ord("q"), NormalMode(), EntityId(1)) == QuitRequest()
+
+
+def test_normal_mode_maps_i_to_inventory_request() -> None:
+    assert map_key(ord("i"), NormalMode(), EntityId(1)) == InventoryRequest()
+
+
+def test_inventory_mode_maps_close_keys() -> None:
+    assert map_key(ord("i"), InventoryMode(), EntityId(1)) == CloseInventory()
+    assert map_key(ord("q"), InventoryMode(), EntityId(1)) == CloseInventory()
 
 
 def test_confirm_quit_mode_maps_answers() -> None:

@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Generic, TypeVar
 
-from src.core.components import Armor, BlocksMovement, Character, CombatStats, Faction, Name, PlayerControlled, Position, Presentation, Weapon
+from src.core.components import Armor, BlocksMovement, Character, CombatStats, Creature, Faction, Name, PlayerControlled, Position, Presentation, Weapon
 from src.core.entity import EntityId
 from src.map.tiles import OUTSIDE, Tile
 
@@ -55,6 +55,7 @@ class World:
     )
     names: ComponentStore[Name] = field(default_factory=lambda: ComponentStore({}))
     characters: ComponentStore[Character] = field(default_factory=lambda: ComponentStore({}))
+    creatures: ComponentStore[Creature] = field(default_factory=lambda: ComponentStore({}))
     combat_stats: ComponentStore[CombatStats] = field(default_factory=lambda: ComponentStore({}))
     weapons: ComponentStore[Weapon] = field(default_factory=lambda: ComponentStore({}))
     armor: ComponentStore[Armor] = field(default_factory=lambda: ComponentStore({}))
@@ -101,6 +102,7 @@ class World:
             self.player_controlled,
             self.names,
             self.characters,
+            self.creatures,
             self.combat_stats,
             self.weapons,
             self.armor,

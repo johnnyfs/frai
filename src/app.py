@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 import curses
 
 from src.core.combat import combat_stats_for_sheet, starter_armor_for_class, starter_weapon_for_class
-from src.core.config import PLAYFIELD_HEIGHT, PLAYFIELD_WIDTH
+from src.core.config import MIN_TERMINAL_HEIGHT, MIN_TERMINAL_WIDTH, WORLD_HEIGHT, WORLD_WIDTH
 from src.core.dispatcher import Dispatcher
 from src.core.components import Character
 from src.core.character_creation import initial_character_creation_state
@@ -23,6 +23,7 @@ from src.core.world import World
 from src.map.room_builder import build_room_world
 from src.systems.game_over_system import GameOverSystem
 from src.systems.input_system import map_key
+from src.systems.inventory_system import InventorySystem
 from src.systems.character_creation_system import CharacterCreationSystem
 from src.systems.combat_system import CombatSystem
 from src.systems.message_system import MessageState
@@ -39,6 +40,7 @@ from src.ui.screen import Screen
 class App:
     world: World
     player: EntityId
+    focus: EntityId
     dispatcher: Dispatcher
     messages: MessageState = field(default_factory=MessageState)
     mode: GameMode = field(default_factory=StartChoiceMode)
@@ -93,11 +95,12 @@ class App:
         built = build_room_world(width=self.world.width, height=self.world.height)
         self.world = built.world
         self.player = built.player
+        self.focus = built.player
         self.mode = StartChoiceMode()
         self.messages.emit("")
 
 
-def create_app(width: int = PLAYFIELD_WIDTH, height: int = PLAYFIELD_HEIGHT) -> App:
+def create_app(width: int = WORLD_WIDTH, height: int = WORLD_HEIGHT) -> App:
     built = build_room_world(width=width, height=height)
     movement = MovementSystem(
         obstruction=ObstructionSystem(),
@@ -108,6 +111,7 @@ def create_app(width: int = PLAYFIELD_WIDTH, height: int = PLAYFIELD_HEIGHT) -> 
         systems=[
             StartSystem(),
             GameOverSystem(),
+            InventorySystem(),
             CharacterCreationSystem(),
             QuitSystem(),
             TurnSystem(movement=movement, combat=combat),
@@ -115,7 +119,7 @@ def create_app(width: int = PLAYFIELD_WIDTH, height: int = PLAYFIELD_HEIGHT) -> 
             combat,
         ]
     )
-    return App(world=built.world, player=built.player, dispatcher=dispatcher)
+    return App(world=built.world, player=built.player, focus=built.player, dispatcher=dispatcher)
 
 
 def _setup_curses(stdscr: curses.window) -> None:
@@ -133,13 +137,20 @@ def _run_curses(stdscr: curses.window) -> None:
     _setup_curses(stdscr)
     app = create_app()
     while app.running:
-        render(Screen(stdscr), app.world, app.world.player_entity(), app.messages, app.mode)
+        render(
+            Screen(stdscr),
+            app.world,
+            app.world.player_entity(),
+            app.messages,
+            app.mode,
+            app.focus,
+        )
         key = stdscr.getch()
         if key == curses.KEY_RESIZE:
             continue
 
         screen = Screen(stdscr)
-        if screen.width < PLAYFIELD_WIDTH or screen.height < PLAYFIELD_HEIGHT + 2:
+        if screen.width < MIN_TERMINAL_WIDTH or screen.height < MIN_TERMINAL_HEIGHT:
             if 0 <= key <= 255 and chr(key).lower() == "q":
                 app.running = False
             continue

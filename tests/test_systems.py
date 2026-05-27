@@ -1,4 +1,7 @@
+from random import Random
+
 from src.core.actions import MoveAttempt, QuitConfirm, QuitRequest
+from src.core.config import PLAYFIELD_WIDTH, WORLD_HEIGHT, WORLD_WIDTH
 from src.core.effects import EmitMessage, MoveEntity, QuitGame, SetMode
 from src.core.modes import ConfirmQuitMode, NormalMode
 from src.map.room_builder import build_room_world
@@ -66,3 +69,28 @@ def test_room_uses_nethack_wall_glyphs() -> None:
     assert built.world.tile_at((left_x + right_x) // 2, bottom_y).glyph == "-"
     assert built.world.tile_at(left_x, (top_y + bottom_y) // 2).glyph == "|"
     assert built.world.tile_at(right_x, (top_y + bottom_y) // 2).glyph == "|"
+
+
+def test_default_world_adds_long_side_passages_and_rooms_beyond_initial_view() -> None:
+    built = build_room_world(WORLD_WIDTH, WORLD_HEIGHT, rng=Random(0))
+    player_position = built.world.positions.require(built.player)
+    viewport_left = player_position.x - PLAYFIELD_WIDTH // 2
+    viewport_right = viewport_left + PLAYFIELD_WIDTH - 1
+    passage_rows = {
+        y: [x for x, tile in enumerate(row) if tile.kind is TileKind.PASSAGE]
+        for y, row in enumerate(built.world.tiles)
+        if any(tile.kind is TileKind.PASSAGE for tile in row)
+    }
+
+    assert len(passage_rows) == 2
+    assert all(len(xs) > 40 for xs in passage_rows.values())
+    assert any(
+        x < viewport_left and tile.kind is not TileKind.OUTSIDE
+        for row in built.world.tiles
+        for x, tile in enumerate(row)
+    )
+    assert any(
+        x > viewport_right and tile.kind is not TileKind.OUTSIDE
+        for row in built.world.tiles
+        for x, tile in enumerate(row)
+    )

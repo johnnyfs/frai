@@ -107,6 +107,8 @@ def armor_class_for(dexterity: int, armor: Armor | None) -> int:
         return 10 + dexterity_modifier
     if armor.dexterity_cap is None:
         return armor.base_armor_class + dexterity_modifier
+    if armor.dexterity_cap == 0:
+        return armor.base_armor_class
     return armor.base_armor_class + min(dexterity_modifier, armor.dexterity_cap)
 
 
@@ -122,17 +124,5 @@ def combat_stats_for_sheet(sheet: CharacterSheet, armor: Armor | None = None) ->
         strength=sheet.attributes["STR"],
         dexterity=dexterity,
         constitution=constitution,
-        proficiency_bonus=2,
-    )
-
-
-def goblin_stats() -> CombatStats:
-    return CombatStats(
-        armor_class=15,
-        hit_points=10,
-        max_hit_points=10,
-        strength=8,
-        dexterity=15,
-        constitution=10,
         proficiency_bonus=2,
     )

@@ -29,6 +29,16 @@ class GameOverMode:
     pass
 
 
+@dataclass(frozen=True, slots=True)
+class InventoryMode:
+    pass
+
+
 GameMode: TypeAlias = (
-    NormalMode | ConfirmQuitMode | CharacterCreationMode | StartChoiceMode | GameOverMode
+    NormalMode
+    | ConfirmQuitMode
+    | CharacterCreationMode
+    | StartChoiceMode
+    | GameOverMode
+    | InventoryMode
 )

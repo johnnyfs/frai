@@ -1,6 +1,7 @@
 from src.app import create_app
+from src.core.config import PLAYFIELD_WIDTH
 from src.core.effects import KillEntity
-from src.core.modes import CharacterCreationMode, ConfirmQuitMode, GameOverMode, NormalMode, StartChoiceMode
+from src.core.modes import CharacterCreationMode, ConfirmQuitMode, GameOverMode, InventoryMode, NormalMode, StartChoiceMode
 
 
 def test_quit_prompt_and_cancel_flow_uses_effects() -> None:
@@ -116,9 +117,22 @@ def test_created_character_gets_class_starter_armor() -> None:
     assert app.world.combat_stats.require(app.player).armor_class == 16
 
 
+def test_inventory_command_opens_and_closes_inventory() -> None:
+    app = create_app()
+    app.handle_key(ord("y"))
+
+    app.handle_key(ord("i"))
+
+    assert isinstance(app.mode, InventoryMode)
+
+    app.handle_key(ord("q"))
+
+    assert isinstance(app.mode, NormalMode)
+
+
 def test_long_messages_require_key_to_continue_before_actions() -> None:
     app = create_app()
-    app.messages.emit("x" * 100)
+    app.messages.emit("x" * (PLAYFIELD_WIDTH + 20))
 
     app.handle_key(ord("y"))
 

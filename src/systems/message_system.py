@@ -3,6 +3,10 @@ import textwrap
 
 from src.core.config import PLAYFIELD_WIDTH
 
+MORE_PROMPT = "--more--"
+MORE_SUFFIX = f" {MORE_PROMPT}"
+MESSAGE_PAGE_WIDTH = PLAYFIELD_WIDTH - len(MORE_SUFFIX)
+
 
 @dataclass(slots=True)
 class MessageState:
@@ -15,7 +19,8 @@ class MessageState:
             self.pending.clear()
             return
 
-        chunks = textwrap.wrap(text, width=PLAYFIELD_WIDTH, break_long_words=True)
+        wrap_width = MESSAGE_PAGE_WIDTH if len(text) > PLAYFIELD_WIDTH else PLAYFIELD_WIDTH
+        chunks = textwrap.wrap(text, width=wrap_width, break_long_words=True)
         if not chunks:
             chunks = [""]
         self.current = chunks[0]

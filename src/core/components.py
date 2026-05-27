@@ -35,6 +35,12 @@ class Character:
 
 
 @dataclass(slots=True)
+class Creature:
+    kind: str
+    attack_verb: str
+
+
+@dataclass(slots=True)
 class CombatStats:
     armor_class: int
     hit_points: int
