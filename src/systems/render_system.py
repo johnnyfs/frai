@@ -1,5 +1,7 @@
-from dataclasses import dataclass
 from collections.abc import Sequence
+from dataclasses import dataclass
+from types import MappingProxyType
+from typing import Mapping
 
 from src.core.components import Presentation
 from src.core.character_creation import (
@@ -16,7 +18,6 @@ from src.core.config import MIN_TERMINAL_HEIGHT, MIN_TERMINAL_WIDTH, PLAYFIELD_W
 from src.core.entity import EntityId
 from src.core.modes import CharacterCreationMode, GameMode, GameOverMode, InventoryMode, StartChoiceMode
 from src.core.world import World
-from src.map.tiles import TileKind
 from src.systems.message_system import MORE_PROMPT, MessageState
 from src.ui.layout import Layout
 from src.ui.screen import Screen
@@ -28,6 +29,33 @@ class Glyph:
     fg: int | None = None
     bg: int | None = None
     attrs: int = 0
+    render_token: str | None = None
+    color_token: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ColorProjection:
+    fg: int | None = None
+    bg: int | None = None
+    attrs: int = 0
+
+
+TERRAIN_COLOR_PROJECTIONS: Mapping[str, ColorProjection] = MappingProxyType(
+    {
+        "terrain.default": ColorProjection(fg=7),
+        "terrain.stone.floor": ColorProjection(fg=7),
+        "terrain.stone.passage": ColorProjection(fg=6),
+        "terrain.stone.wall": ColorProjection(fg=8),
+        "terrain.void": ColorProjection(fg=0),
+        "terrain.grass": ColorProjection(fg=2),
+        "terrain.road": ColorProjection(fg=3),
+        "terrain.forest": ColorProjection(fg=2),
+        "terrain.town.floor": ColorProjection(fg=7),
+        "terrain.dungeon.floor": ColorProjection(fg=8),
+        "terrain.water": ColorProjection(fg=4),
+        "terrain.rubble": ColorProjection(fg=3),
+    }
+)
 
 
 def presentation_for(observer: EntityId, world: World, x: int, y: int) -> Glyph:
@@ -123,9 +151,18 @@ def _presentation_for(
             return Glyph(presentation.glyph)
 
     tile = world.tile_at(x, y)
-    if tile.kind in (TileKind.WALL, TileKind.FLOOR):
-        return Glyph(tile.glyph)
-    return Glyph(tile.glyph)
+    color = TERRAIN_COLOR_PROJECTIONS.get(
+        tile.color_token,
+        TERRAIN_COLOR_PROJECTIONS["terrain.default"],
+    )
+    return Glyph(
+        tile.glyph,
+        fg=color.fg,
+        bg=color.bg,
+        attrs=color.attrs,
+        render_token=tile.render_token,
+        color_token=tile.color_token,
+    )
 
 
 def _party_glyph(entity: EntityId, party: Sequence[EntityId]) -> str | None:

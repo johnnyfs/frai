@@ -4,7 +4,9 @@ from src.core.actions import Action, AttackAttempt, MoveAttempt
 from src.core.dispatcher import DispatchResult
 from src.core.effects import EmitMessage, MoveEntity
 from src.core.entity import EntityId
+from src.core.turns import movement_cost
 from src.core.world import BlockerRef, World
+from src.map.tiles import Tile
 from src.systems.obstruction_system import ObstructionSystem
 
 
@@ -15,6 +17,8 @@ class MovementContext:
     destination_y: int
     destination_entities: list[EntityId]
     blockers: list[BlockerRef]
+    destination_tile: Tile
+    movement_cost: float
 
 
 class MovementContextResolver:
@@ -22,12 +26,19 @@ class MovementContextResolver:
         position = world.positions.require(action.actor)
         destination_x = position.x + action.dx
         destination_y = position.y + action.dy
+        destination_tile = world.tile_at(destination_x, destination_y)
         return MovementContext(
             actor=action.actor,
             destination_x=destination_x,
             destination_y=destination_y,
             destination_entities=world.entities_at(destination_x, destination_y),
             blockers=world.blockers_at(destination_x, destination_y),
+            destination_tile=destination_tile,
+            movement_cost=terrain_adjusted_movement_cost(
+                action.dx,
+                action.dy,
+                destination_tile,
+            ),
         )
 
 
@@ -73,3 +84,7 @@ def _hostile_target(actor: EntityId, entities: list[EntityId], world: World) -> 
             if world.combat_stats.has(entity):
                 return entity
     return None
+
+
+def terrain_adjusted_movement_cost(dx: int, dy: int, tile: Tile) -> float:
+    return movement_cost(dx, dy) * tile.movement_cost_multiplier
