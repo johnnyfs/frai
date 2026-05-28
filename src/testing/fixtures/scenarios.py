@@ -39,6 +39,7 @@ from src.testing.fixtures._helpers import (
     FixtureRoom,
     clear_tiles_for_spawn,
     force_rogue_sheet,
+    force_wizard_sheet,
     make_fixture_app,
     spawn_chest,
     spawn_door,
@@ -333,6 +334,30 @@ def _build_hostile_far(_app: App, rng: random.Random | None = None) -> App:
     )
 
 
+def _build_spell_encounter(_app: App, rng: random.Random | None = None) -> App:
+    """Wizard leader with two kobolds within spell range.
+
+    Exercises the M11 cast path end-to-end: the leader has a full
+    spell list and slot ledger (from the Wizard sheet flowing through
+    :func:`_assign_character_sheet`), and the two kobolds give the
+    tester an obvious offensive-spell target plus an AOE candidate.
+    """
+
+    def populate(room: FixtureRoom, player: EntityId, _party: list[EntityId]) -> None:
+        px, py = room.world.positions.require(player).x, room.world.positions.require(player).y
+        # Two kobolds: one two tiles east (safe distance for Fire Bolt),
+        # one diagonal so Burning Hands at the cursor cell catches both.
+        spawn_kobold(room.world, px + 2, py)
+        spawn_kobold(room.world, px + 3, py + 1)
+
+    rng = rng if rng is not None else _fixture_rng()
+    return make_fixture_app(
+        rng=rng,
+        populate=populate,
+        sheet=force_wizard_sheet(rng),
+    )
+
+
 def _build_open_terrain(_app: App, rng: random.Random | None = None) -> App:
     # Large empty room for autowalk-to-bound: no hostiles, no doors.
     # The companions are explicitly parked along the south wall so the
@@ -429,6 +454,12 @@ _FIXTURES: tuple[tuple[str, str, Callable[[App], App], tuple[str, ...]], ...] = 
         "Empty 30x10 room; tests autowalk-to-bound (out_of_steps / blocked).",
         _build_open_terrain,
         (),
+    ),
+    (
+        "spell_encounter",
+        "Wizard leader plus two kobolds in spell range; M11 cast path smoke.",
+        _build_spell_encounter,
+        ("kobold", "kobold"),
     ),
 )
 

@@ -2,7 +2,14 @@ from dataclasses import dataclass, field
 import curses
 import random
 
-from src.core.action_context import ActionContext, ActionResolver, make_default_resolver
+from src.core.action_context import (
+    ActionContext,
+    ActionResolver,
+    Phase,
+    PhaseOutcome,
+    ResolvedAttempt,
+    make_default_resolver,
+)
 from src.core.combat import combat_stats_for_sheet, starter_armor_for_class, starter_weapon_for_class
 from src.core.config import MIN_TERMINAL_HEIGHT, MIN_TERMINAL_WIDTH, WORLD_HEIGHT, WORLD_WIDTH
 from src.core.dispatcher import Dispatcher
@@ -18,7 +25,7 @@ from src.core.components import (
     Presentation,
 )
 from src.core.character_creation import CharacterCreationState, CharacterSheet
-from src.core.conditions import tick_conditions
+from src.core.conditions import ConditionKind, tick_conditions
 from src.core.dialogue import (
     CloseDialogueEffect,
     DialogueOption,
@@ -29,8 +36,11 @@ from src.core.dialogue import (
 from src.core.game_state import GameState
 from src.core.items import add_item, armor_item_id_for_name, weapon_item_id_for_name
 from src.core.effects import (
+    ConsumeSpellSlot,
+    DamageEntity,
     Effect,
     EmitMessage,
+    EndCondition,
     MoveEntity,
 )
 from src.core.effects_applier import EffectApplier
@@ -38,12 +48,16 @@ from src.core.entity import EntityId
 from src.core.factions import FactionId
 from src.core.actions import (
     Action,
+    CastSpellAttempt,
+    CloseSpellMenu,
     DropItemAttempt,
     EndTurn,
     ExamineRequest,
     InteractAttempt,
     MoveAttempt,
     PickupAttempt,
+    SpellMenuChoice,
+    SpellMenuRequest,
     ToggleTurnMode,
 )
 from src.core.descriptions import examine_tile
@@ -56,7 +70,17 @@ from src.core.autowalk import (
 from src.core.modes import PlayMode, UIMode, is_turn_based_play, play_mode_for_state
 from src.core.party import CompanionDefinition, companion_definitions_for_player_class
 from src.core.party_state import PartyState
-from src.core.targeting import TargetingState, any_tile
+from src.core.spells import (
+    SPELL_CATALOG,
+    SpellTargetKind,
+    spell_for_id,
+)
+from src.core.targeting import (
+    TargetingState,
+    any_tile,
+    any_visible_tile,
+    make_visible_predicate,
+)
 from src.core.time import SECONDS_PER_ROUND, SECONDS_PER_TURN, advance as advance_world_clock
 from src.core.turn_controller import TurnController
 from src.core.turns import ActivationState
@@ -81,6 +105,7 @@ from src.systems.movement_system import (
 from src.systems.obstruction_system import ObstructionSystem
 from src.systems.quit_system import QuitSystem
 from src.systems.render_system import render
+from src.systems.spell_system import SpellSystem
 from src.systems.start_system import StartSystem, yolo_sheet
 from src.systems.vision_system import VisionSystem
 from src.ui.screen import Screen
@@ -141,7 +166,81 @@ class App:
         self.effect_applier = EffectApplier(self)
         if self.action_resolver is None:
             self.action_resolver = make_default_resolver(self.dispatcher)
+        # M11 spell hooks. Slot consumption lives in PRE_CHECK so a
+        # failed resolve (e.g. unknown spell, no slot) doesn't burn a
+        # slot. The reaction hook ends concentration when the caster
+        # takes damage in the same resolved attempt — this is the M24
+        # seam for "damage on a concentrating caster breaks concentration"
+        # (the SRD rule is "save or break"; M11 keeps the simpler "any
+        # damage breaks" until M29 brings the save-driven branch).
+        self.action_resolver.register(Phase.PRE_CHECK, self._spell_pre_check)
+        self.action_resolver.add_reaction(self._concentration_break_reaction)
         self.refresh_vision()
+
+    def _spell_pre_check(self, context: ActionContext) -> PhaseOutcome:
+        """Consume the caster's spell slot before the spell system runs (M11).
+
+        Cantrips (level 0) skip slot consumption entirely. A leveled
+        spell with no slot remaining is cancelled here — the resolver
+        short-circuits past the dispatcher so the spell system never
+        runs, no message is emitted by the spell system, and no
+        condition / damage effect is produced. The pre-check itself
+        emits ``"No spell slot available."``.
+
+        Unknown spell ids fall through unmodified; the spell system
+        will emit its own ``"Unknown spell ..."`` refusal.
+        """
+
+        action = context.action
+        if not isinstance(action, CastSpellAttempt):
+            return PhaseOutcome()
+        try:
+            spell = spell_for_id(action.spell_id)
+        except KeyError:
+            return PhaseOutcome()
+        if spell.level <= 0:
+            return PhaseOutcome()  # cantrip
+        slots = context.world.spell_slots.get(action.actor)
+        if slots is None or not slots.has_slot(spell.level):
+            return PhaseOutcome(
+                effects=(EmitMessage("No spell slot available."),),
+                cancel=True,
+            )
+        # Spend the slot via a typed effect so save/load and observation
+        # stay consistent. The actual decrement lands in
+        # ``EffectApplier`` when the batch applies — the pre-check is
+        # the only place that decides whether the slot is *available*,
+        # and the applier is the only place that updates the ledger.
+        return PhaseOutcome(
+            effects=(ConsumeSpellSlot(action.actor, spell.level),)
+        )
+
+    def _concentration_break_reaction(self, attempt: "ResolvedAttempt") -> list[Effect]:
+        """End concentration when a concentrating caster takes damage (M11/M24).
+
+        Walks the resolved attempt's effects for any
+        :class:`DamageEntity` whose target is currently concentrating
+        and appends an :class:`EndCondition` to clear the concentration
+        condition. The hook is intentionally cautious — it does not
+        clear any of the conditions the concentration was sustaining
+        (those clear on their own duration; the SRD lets short-duration
+        buffs ride out their last second when their source drops). M11
+        keeps the scope narrow; M24 follow-ups can broaden the cascade.
+        """
+
+        world = attempt.original.world
+        extra: list[Effect] = []
+        for effect in attempt.effects:
+            if not isinstance(effect, DamageEntity):
+                continue
+            if effect.amount <= 0:
+                continue
+            store = world.conditions.get(effect.entity)
+            if store is None or not store.has(ConditionKind.CONCENTRATING):
+                continue
+            extra.append(EndCondition(effect.entity, ConditionKind.CONCENTRATING))
+            extra.append(EmitMessage("Concentration breaks."))
+        return extra
 
     def resolve_action(self, action: Action) -> list[Effect]:
         """Run ``action`` through the M46 phased resolver.
@@ -382,6 +481,15 @@ class App:
             self.apply_effects(self._toggle_turn_mode())
             self.sync_play_mode()
             return
+        if isinstance(action, SpellMenuRequest) and self.ui_mode is UIMode.play:
+            self._open_spell_menu()
+            return
+        if isinstance(action, CloseSpellMenu) and self.ui_mode is UIMode.spell_menu:
+            self._close_spell_menu()
+            return
+        if isinstance(action, SpellMenuChoice) and self.ui_mode is UIMode.spell_menu:
+            self._handle_spell_menu_choice(action)
+            return
         if isinstance(action, InteractAttempt) and self.ui_mode is UIMode.play:
             if action.dx == 0 and action.dy == 0:
                 action = InteractAttempt(action.actor, self.facing[0], self.facing[1], action.check_result)
@@ -602,6 +710,166 @@ class App:
         self.targeting = None
         self.ui_mode = previous_mode if previous_mode is not None else UIMode.play
         effects = self.resolve_action(action)
+        self.apply_effects(effects)
+        self.sync_play_mode()
+
+    # ------------------------------------------------------------------
+    # Spell menu (M11)
+    # ------------------------------------------------------------------
+
+    def _spell_menu_entries(self) -> list[tuple[str, str]]:
+        """Return ``(letter, spell_id)`` pairs for the active actor's
+        spell list.
+
+        Letters are assigned sequentially (``a``, ``b``, ``c``, ...).
+        Empty list when the actor has no :class:`SpellList`.
+        """
+
+        actor = self.active_actor()
+        spell_list = self.world.spell_lists.get(actor)
+        if spell_list is None:
+            return []
+        return [(chr(ord("a") + index), spell_id) for index, spell_id in enumerate(spell_list.known)]
+
+    def _open_spell_menu(self) -> None:
+        entries = self._spell_menu_entries()
+        if not entries:
+            self.apply_effects([EmitMessage("You know no spells.")])
+            return
+        self.ui_mode = UIMode.spell_menu
+        labels = ", ".join(
+            f"{letter}) {SPELL_CATALOG[spell_id].name}"
+            for letter, spell_id in entries
+        )
+        self.messages.emit(f"Cast: {labels} (q to cancel)")
+
+    def _close_spell_menu(self) -> None:
+        self.ui_mode = UIMode.play
+        self.messages.emit("Spell menu closed.")
+
+    def _handle_spell_menu_choice(self, action: SpellMenuChoice) -> None:
+        """Resolve a spell letter into the appropriate cast flow.
+
+        Spells that need a target (single-entity, area) open a
+        :class:`TargetingState` via ``begin_targeting``. The
+        :class:`CastSpellAttempt` is built in the targeting
+        ``on_confirm`` callback so cancellation truly costs nothing
+        (no slot consumed, no turn advanced). Friendly-group spells
+        target the party deterministically — picking the first
+        ``group_size`` party members within range — to keep the M11
+        scope small; a cursor-driven multi-pick UI is a follow-up.
+        """
+
+        entries = self._spell_menu_entries()
+        entry_map = {letter: spell_id for letter, spell_id in entries}
+        spell_id = entry_map.get(action.spell_id)
+        if spell_id is None:
+            self.messages.emit(f"No spell on '{action.spell_id}'.")
+            return
+        try:
+            spell = spell_for_id(spell_id)
+        except KeyError:
+            self.messages.emit(f"Unknown spell '{spell_id}'.")
+            return
+
+        # Close the menu before opening the next modal so observers
+        # (renderer, observation) see consistent state.
+        self.ui_mode = UIMode.play
+
+        actor = self.active_actor()
+
+        if spell.target_kind is SpellTargetKind.SINGLE_ENTITY:
+            self._begin_single_entity_target(actor, spell.spell_id)
+            return
+        if spell.target_kind is SpellTargetKind.AREA_RADIUS:
+            self._begin_area_target(actor, spell.spell_id)
+            return
+        if spell.target_kind is SpellTargetKind.FRIENDLY_GROUP:
+            self._cast_friendly_group(actor, spell)
+            return
+
+        self.messages.emit("This spell cannot be cast here.")
+
+    def _begin_single_entity_target(self, actor: EntityId, spell_id: str) -> None:
+        spell = spell_for_id(spell_id)
+        position = self.world.positions.require(actor)
+
+        def _on_confirm(cell: tuple[int, int]) -> Action | None:
+            entities = self.world.entities_at(cell[0], cell[1])
+            target = next(
+                (entity for entity in entities if self.world.combat_stats.has(entity)),
+                None,
+            )
+            if target is None:
+                self.messages.emit("No target there.")
+                return None
+            return CastSpellAttempt(
+                actor=actor, spell_id=spell_id, target_entity=target
+            )
+
+        self.begin_targeting(
+            TargetingState(
+                origin=(position.x, position.y),
+                cursor=(position.x, position.y),
+                range=spell.range,
+                on_confirm=_on_confirm,
+                predicate=make_visible_predicate(actor, radius=spell.range),
+                label=f"Target {spell.name} (range {spell.range})",
+            )
+        )
+
+    def _begin_area_target(self, actor: EntityId, spell_id: str) -> None:
+        spell = spell_for_id(spell_id)
+        position = self.world.positions.require(actor)
+
+        def _on_confirm(cell: tuple[int, int]) -> Action | None:
+            return CastSpellAttempt(
+                actor=actor, spell_id=spell_id, target_tile=cell
+            )
+
+        self.begin_targeting(
+            TargetingState(
+                origin=(position.x, position.y),
+                cursor=(position.x, position.y),
+                range=spell.range,
+                on_confirm=_on_confirm,
+                predicate=any_visible_tile,
+                label=f"Target {spell.name} (range {spell.range}, radius {spell.area_radius})",
+            )
+        )
+
+    def _cast_friendly_group(self, actor: EntityId, spell) -> None:
+        """Resolve a friendly-group spell against the first N party members.
+
+        Picks up to ``spell.group_size`` party members within
+        Chebyshev range of the caster. The action is dispatched
+        immediately — no targeting modal — because the M11 scope keeps
+        the multi-pick UI simple. A future follow-up can replace this
+        with a cursor-driven selection (M21 or a new modal).
+        """
+
+        position = self.world.positions.require(actor)
+        targets: list[EntityId] = []
+        for member in self.party.members:
+            if len(targets) >= spell.group_size:
+                break
+            member_position = self.world.positions.get(member)
+            if member_position is None:
+                continue
+            distance = max(
+                abs(member_position.x - position.x),
+                abs(member_position.y - position.y),
+            )
+            if distance > spell.range:
+                continue
+            targets.append(member)
+        if not targets:
+            self.messages.emit("No friendly targets in range.")
+            return
+        attempt = CastSpellAttempt(
+            actor=actor, spell_id=spell.spell_id, target_entities=tuple(targets)
+        )
+        effects = self.resolve_action(attempt)
         self.apply_effects(effects)
         self.sync_play_mode()
 
@@ -1128,6 +1396,7 @@ def create_app(
     )
     combat = CombatSystem()
     interaction_rng = rng if rng is not None else random.Random()
+    spell_rng = rng if rng is not None else random.Random()
     dispatcher = Dispatcher(
         systems=[
             StartSystem(),
@@ -1137,6 +1406,7 @@ def create_app(
             QuitSystem(),
             InteractionSystem(rng=interaction_rng),
             LootSystem(),
+            SpellSystem(rng=spell_rng),
             movement,
             combat,
         ]
@@ -1291,6 +1561,31 @@ def _assign_character_sheet(world: World, entity: EntityId, sheet: CharacterShee
         entity,
         Equipment(weapon_item_id=weapon_item_id, armor_item_id=armor_item_id),
     )
+    _assign_spell_loadout(world, entity, sheet)
+
+
+def _assign_spell_loadout(world: World, entity: EntityId, sheet: CharacterSheet) -> None:
+    """Attach the M11 spell list + slot ledger appropriate for the class.
+
+    Non-casters get nothing. Casters receive every catalog spell so the
+    representative M11 playtest exercises the whole action path
+    without needing to pick spells in character creation. M25 (leveling)
+    will replace this default loadout with the proper SRD spells-known
+    progression and the character-creation cantrip / spell picks the
+    player made.
+    """
+
+    from src.core.spells import (
+        SpellList,
+        SpellSlots,
+        starting_spell_loadout_for_class,
+    )
+
+    known, slot_pairs = starting_spell_loadout_for_class(sheet.character_class)
+    if not known:
+        return
+    world.spell_lists.add(entity, SpellList(known=tuple(known)))
+    world.spell_slots.add(entity, SpellSlots.from_pairs(slot_pairs))
 
 
 def _hostile_target_for_move(world: World, action: MoveAttempt) -> EntityId | None:

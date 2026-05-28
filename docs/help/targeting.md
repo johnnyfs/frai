@@ -110,8 +110,8 @@ the play screen with no cursor pending.
   `docs/help/examine.md`. The examine flow also exercises the
   per-state `cancel_message` override so Esc closes without
   clobbering the description with a generic banner.
-- **M11 ranged / spells** — opens targeting with a vision-aware
-  predicate, configurable range, and an `on_confirm` that builds
-  a `SpellAttempt` (or new equivalent action).
+- **M11 spells** — landed. The spell menu (`s` in play) hands off to
+  this modal with the spell's range, a vision-aware predicate, and
+  an `on_confirm` that builds a `CastSpellAttempt`.
 - **Throw item** — opens targeting with `any_visible_tile` and
   an `on_confirm` that builds a `ThrowItemAttempt`.

@@ -50,8 +50,11 @@ one (the player chose to redirect their focus). The engine performs
 this handoff inside `apply_condition` so no spell code needs to know
 about it.
 
-Concentration breakage from damage / save failure (the SRD rule) is M11
-work; today the only break trigger is "apply a new concentration".
+Concentration breakage from damage is wired in M11: the App registers a
+reaction hook on the M46 resolver that watches every resolved attempt
+for `DamageEntity` effects on a concentrating actor and appends an
+`EndCondition(CONCENTRATING)`. The simpler "any damage breaks" rule is
+used today; the SRD `DC 10 or half damage` save is a M24 follow-up.
 
 ## Effects
 

@@ -4,6 +4,7 @@ from src.core.actions import (
     Action,
     CharacterCreationCommand,
     CloseInventory,
+    CloseSpellMenu,
     DropItemAttempt,
     EndTurn,
     ExamineRequest,
@@ -14,6 +15,8 @@ from src.core.actions import (
     PickupAttempt,
     QuitConfirm,
     QuitRequest,
+    SpellMenuChoice,
+    SpellMenuRequest,
     StartChoice,
     ToggleTurnMode,
 )
@@ -114,11 +117,23 @@ def map_key(
             return PickupAttempt(actor=player)
         if key_name in ("x", ";"):
             return ExamineRequest(actor=player)
+        if key_name == "s":
+            return SpellMenuRequest(actor=player)
         if key_name in MOVE_KEYS:
             dx, dy = MOVE_KEYS[key_name]
             return MoveAttempt(actor=player, dx=dx, dy=dy)
         if key_name == "q":
             return QuitRequest()
+        return None
+
+    if ui_mode is UIMode.spell_menu:
+        if key_name in (None, "q") or key == 27:
+            return CloseSpellMenu()
+        # Letters a..z choose the corresponding slot index. The App
+        # resolves the index against the active actor's spell list,
+        # so the input layer remains data-free.
+        if key_name is not None and len(key_name) == 1 and key_name.isalpha():
+            return SpellMenuChoice(actor=player, spell_id=key_name)
         return None
 
     if ui_mode is UIMode.quit_confirm:

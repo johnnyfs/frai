@@ -76,6 +76,8 @@ def _iter_component_stores(world: World):
         "loot_drops",
         "god_modes",
         "conditions",
+        "spell_slots",
+        "spell_lists",
         "aggro_overrides",
     ):
         store = getattr(world, name, None)

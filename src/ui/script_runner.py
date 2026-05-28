@@ -60,6 +60,7 @@ from src.core.command_script import (
     MoveCommand,
     PickupCommand,
     RestCommand,
+    SpellMenuCommand,
     WaitCommand,
     parse as parse_script,
 )
@@ -78,6 +79,7 @@ _KEY_REST = ord("r")
 _KEY_EXAMINE = ord("x")
 _KEY_HELP = ord("?")
 _KEY_WAIT = ord(".")
+_KEY_SPELL_MENU = ord("s")  # M11 spell menu opener.
 _KEY_SPACE = ord(" ")  # ``EndTurn`` / message advance.
 _KEY_ENTER = 10  # ASCII LF — ``handle_key`` treats this as a no-op today.
 _KEY_ESC = 27  # ASCII ESC — same, reserved for M39 / M41.
@@ -179,6 +181,8 @@ def run_command(app: Any, command: Command) -> CommandOutcome:
         # which is ``EndTurn`` — the closest semantic match. When M44
         # introduces a real wait action we'll split them.
         return _run_simple_key(app, command, _KEY_SPACE)
+    if isinstance(command, SpellMenuCommand):
+        return _run_simple_key(app, command, _KEY_SPELL_MENU)
     if isinstance(command, ConfirmCommand):
         return _run_simple_key(app, command, _KEY_ENTER)
     if isinstance(command, CancelCommand):

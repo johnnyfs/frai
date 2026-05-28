@@ -189,6 +189,34 @@ class EndCondition:
 
 
 @dataclass(frozen=True, slots=True)
+class ApplyHealing:
+    """Restore HP on ``entity``, capped at its ``max_hit_points`` (M11).
+
+    The effect is a no-op when the entity has no combat stats; dead
+    actors (HP 0) are healed normally — the M29 downed system will
+    decide whether that triggers stabilisation or full revival.
+    """
+
+    entity: EntityId
+    amount: int
+
+
+@dataclass(frozen=True, slots=True)
+class ConsumeSpellSlot:
+    """Spend one spell slot from ``entity``'s ledger at ``level`` (M11).
+
+    Cantrips (``level == 0``) are no-ops at the applier — the spell
+    system never emits this effect for cantrips, but the applier is
+    defensive in case it is. The effect is also a no-op when the
+    entity has no :class:`~src.core.spells.SpellSlots` component (a
+    caster spawned without a ledger, typically a debug case).
+    """
+
+    entity: EntityId
+    level: int
+
+
+@dataclass(frozen=True, slots=True)
 class DropToGround:
     """Drop ``quantity`` of ``item_id`` (or ``gold`` if item_id is None)
     from ``source``'s inventory to a fresh ground entity at (x, y).
@@ -229,4 +257,6 @@ Effect: TypeAlias = (
     | DropToGround
     | ApplyCondition
     | EndCondition
+    | ApplyHealing
+    | ConsumeSpellSlot
 )

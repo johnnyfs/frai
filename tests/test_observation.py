@@ -344,6 +344,51 @@ def test_observation_handles_party_member_without_position() -> None:
     assert int(app.player) in ids
 
 
+def test_observation_surfaces_spell_list_and_slots_for_caster() -> None:
+    """M11: a caster's spell list and slot ledger are surfaced in the
+    actor summary so the playtest agent can plan spell choices."""
+
+    from src.core.spells import SpellList, SpellSlots
+
+    app = create_app()
+    _enter_play(app)
+    player = app.player
+    app.world.spell_lists.add(player, SpellList(known=("magic_missile", "firebolt")))
+    app.world.spell_slots.add(player, SpellSlots.from_pairs({1: 2}))
+
+    obs = observe(app)
+    assert obs.active_actor is not None
+    assert "magic_missile" in obs.active_actor.spells
+    assert any(
+        s.level == 1 and s.remaining == 2 and s.maximum == 2
+        for s in obs.active_actor.spell_slots
+    )
+
+    # Round-trip through dict to confirm JSON-friendliness.
+    restored = Observation.from_dict(obs.to_dict())
+    assert restored.active_actor is not None
+    assert restored.active_actor.spells == obs.active_actor.spells
+    assert restored.active_actor.spell_slots == obs.active_actor.spell_slots
+
+
+def test_spell_menu_modal_observation_lists_known_spells() -> None:
+    """M11: the spell menu modal surfaces the active actor's spell list."""
+    from src.core.spells import SpellList, SpellSlots
+
+    app = create_app()
+    _enter_play(app)
+    player = app.player
+    app.world.spell_lists.add(player, SpellList(known=("magic_missile", "firebolt")))
+    app.world.spell_slots.add(player, SpellSlots.from_pairs({1: 2}))
+    app.handle_key(ord("s"))
+
+    obs = observe(app)
+    assert obs.modal is not None
+    assert obs.modal.kind == "spell_menu"
+    assert "magic_missile" in obs.modal.options
+    assert "firebolt" in obs.modal.options
+
+
 def test_world_time_snapshot_advances_with_explore_moves() -> None:
     app = create_app()
     _enter_play(app)

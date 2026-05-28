@@ -36,6 +36,7 @@ from src.core.dialogue import DialogueTree
 from src.core.entity import EntityId
 from src.core.factions import AggroOverride, AggroOverrideList, FactionId, Relation
 from src.core.loot import DropTable, GoldDrop, ItemDrop
+from src.core.spells import SpellList, SpellSlots
 from src.core.time import Schedule, ScheduledEvent, WorldTime
 from src.map.tiles import OUTSIDE, Tile, tile_from_token, tile_token
 
@@ -106,6 +107,12 @@ class World:
     loot_drops: ComponentStore[LootDrop] = field(default_factory=lambda: ComponentStore({}))
     god_modes: ComponentStore[GodMode] = field(default_factory=lambda: ComponentStore({}))
     conditions: ComponentStore[ConditionStore] = field(
+        default_factory=lambda: ComponentStore({})
+    )
+    spell_slots: ComponentStore[SpellSlots] = field(
+        default_factory=lambda: ComponentStore({})
+    )
+    spell_lists: ComponentStore[SpellList] = field(
         default_factory=lambda: ComponentStore({})
     )
     aggro_overrides: ComponentStore[AggroOverrideList] = field(
@@ -190,6 +197,8 @@ class World:
             ("loot_drops", self.loot_drops),
             ("god_modes", self.god_modes),
             ("conditions", self.conditions),
+            ("spell_slots", self.spell_slots),
+            ("spell_lists", self.spell_lists),
             ("aggro_overrides", self.aggro_overrides),
             ("npcs", self.npcs),
             ("npc_dialogues", self.npc_dialogues),
@@ -311,6 +320,10 @@ def _component_to_dict(component: Any) -> Any:
     """Turn a component instance into JSON-safe primitives."""
     if isinstance(component, Character):
         return {"sheet": _character_sheet_to_dict(component.sheet)}
+    if isinstance(component, SpellSlots):
+        return component.to_dict()
+    if isinstance(component, SpellList):
+        return component.to_dict()
     if isinstance(component, LootDrop):
         return {"table": _drop_table_to_dict(component.table)}
     if isinstance(component, AI):
@@ -415,6 +428,10 @@ def _component_from_dict(name: str, payload: Any) -> Any:
         return Corpse(**_filtered(Corpse, payload))
     if name == "loot_drops":
         return LootDrop(table=_drop_table_from_dict(payload.get("table", {})))
+    if name == "spell_slots":
+        return SpellSlots.from_dict(payload)
+    if name == "spell_lists":
+        return SpellList.from_dict(payload)
     if name == "god_modes":
         # Never rebuilt — see GodMode docs.
         return None
