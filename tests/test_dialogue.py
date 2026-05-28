@@ -337,6 +337,79 @@ def test_shopkeeper_close_option_returns_to_play() -> None:
     assert app.shop_partner is None
 
 
+def test_shop_modal_esc_closes_and_returns_to_play() -> None:
+    """Regression for #95: Esc on the shop modal returns to play.
+
+    Before the fix, every key was swallowed while ``UIMode.shop`` was
+    active, trapping the player.
+    """
+
+    app = _make_app_with_player()
+    tree = shopkeeper_tree("npc.hadrin", "Welcome.")
+    _spawn_npc(app, NPCKind.SHOPKEEPER, tree, name="Hadrin", shop=True)
+    app.facing = (1, 0)
+    app.handle_key(ord("e"))
+    # Open the shop via the dialogue option.
+    app.handle_key(ord("1"))
+    assert app.ui_mode is UIMode.shop
+
+    app.handle_key(27)  # Esc
+
+    assert app.ui_mode is UIMode.play
+    assert app.shop_partner is None
+
+
+def test_shop_modal_q_closes_and_returns_to_play() -> None:
+    """Regression for #95: ``q`` on the shop modal returns to play."""
+
+    app = _make_app_with_player()
+    tree = shopkeeper_tree("npc.hadrin", "Welcome.")
+    _spawn_npc(app, NPCKind.SHOPKEEPER, tree, name="Hadrin", shop=True)
+    app.facing = (1, 0)
+    app.handle_key(ord("e"))
+    app.handle_key(ord("1"))
+    assert app.ui_mode is UIMode.shop
+
+    app.handle_key(ord("q"))
+
+    assert app.ui_mode is UIMode.play
+    assert app.shop_partner is None
+
+
+def test_shop_modal_buy_emits_placeholder_message() -> None:
+    """``b`` on the shop modal emits a placeholder until M17 lands."""
+
+    app = _make_app_with_player()
+    tree = shopkeeper_tree("npc.hadrin", "Welcome.")
+    _spawn_npc(app, NPCKind.SHOPKEEPER, tree, name="Hadrin", shop=True)
+    app.facing = (1, 0)
+    app.handle_key(ord("e"))
+    app.handle_key(ord("1"))
+    assert app.ui_mode is UIMode.shop
+
+    app.handle_key(ord("b"))
+
+    assert app.ui_mode is UIMode.shop
+    assert "Buy not yet implemented" in app.messages.current
+
+
+def test_shop_modal_sell_emits_placeholder_message() -> None:
+    """``s`` on the shop modal emits a placeholder until M17 lands."""
+
+    app = _make_app_with_player()
+    tree = shopkeeper_tree("npc.hadrin", "Welcome.")
+    _spawn_npc(app, NPCKind.SHOPKEEPER, tree, name="Hadrin", shop=True)
+    app.facing = (1, 0)
+    app.handle_key(ord("e"))
+    app.handle_key(ord("1"))
+    assert app.ui_mode is UIMode.shop
+
+    app.handle_key(ord("s"))
+
+    assert app.ui_mode is UIMode.shop
+    assert "Sell not yet implemented" in app.messages.current
+
+
 def test_dialogue_modal_ignores_world_keys_while_open() -> None:
     app = _make_app_with_player()
     tree = info_tree("npc.gerda", "Hi.")

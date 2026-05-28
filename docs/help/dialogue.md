@@ -77,6 +77,17 @@ shopkeeper entity on `App.shop_partner`. The shop screen itself
 component and `Inventory`. Closing the shop screen is the shop
 screen's responsibility; this dialogue path is one-way.
 
+Until the full M17 buy / sell UI lands, the shop modal still owns
+its own keys so the player isn't trapped:
+
+| Key         | Effect                                       |
+| ---         | ---                                          |
+| `Esc` / `q` | Close the shop and return to play.           |
+| `b`         | Reserved for buy; placeholder message today. |
+| `s`         | Reserved for sell; placeholder message today.|
+
+Closing the modal clears `App.shop_partner`.
+
 ## Save / load
 
 `DialogueTree` is a typed dataclass with a JSON round-trip
