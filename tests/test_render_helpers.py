@@ -3,7 +3,7 @@ from src.core.components import Position
 from src.core.config import PLAYFIELD_HEIGHT, PLAYFIELD_WIDTH
 from src.core.entity import EntityId
 from src.core.world import World
-from src.map.tiles import OUTSIDE
+from src.map.tiles import FOREST, OUTSIDE
 from src.systems.render_system import (
     _focus_screen_position,
     _inventory_lines,
@@ -121,3 +121,23 @@ def test_party_glyphs_follow_roster_order() -> None:
 
     assert _presentation_for(player, world, 1, 1, [player, companion]).char == "@"
     assert _presentation_for(player, world, 2, 1, [player, companion]).char == "1"
+
+
+def test_terrain_render_tokens_and_colors_are_projection_only() -> None:
+    world = World(
+        width=3,
+        height=3,
+        tiles=[[OUTSIDE for _ in range(3)] for _ in range(3)],
+    )
+    world.tiles[1][1] = FOREST
+    before_tile = world.tile_at(1, 1)
+    observer = EntityId(1)
+
+    glyph = _presentation_for(observer, world, 1, 1, [])
+
+    assert glyph.char == "T"
+    assert glyph.render_token == "terrain.forest"
+    assert glyph.color_token == "terrain.forest"
+    assert glyph.fg == 2
+    assert world.tile_at(1, 1) is before_tile
+    assert before_tile.color_token == "terrain.forest"

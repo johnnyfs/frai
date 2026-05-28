@@ -2,7 +2,15 @@ from src.app import create_app
 from src.core.components import CombatStats, Faction, Name, Position
 from src.core.config import PLAYFIELD_WIDTH
 from src.core.effects import KillEntity
-from src.core.modes import CharacterCreationMode, ConfirmQuitMode, GameOverMode, InventoryMode, NormalMode, StartChoiceMode
+from src.core.modes import (
+    CharacterCreationMode,
+    ConfirmQuitMode,
+    GameOverMode,
+    InventoryMode,
+    NormalMode,
+    StartChoiceMode,
+)
+from src.map.tiles import RUBBLE
 
 
 def test_quit_prompt_and_cancel_flow_uses_effects() -> None:
@@ -240,6 +248,54 @@ def test_diagonal_movement_spends_four_and_quarter_feet() -> None:
     assert app.activation.movement_used == 4.25
 
 
+def test_battle_move_onto_rubble_spends_terrain_adjusted_cost() -> None:
+    app = create_app()
+    app.handle_key(ord("y"))
+    player = app.active_actor()
+    companion = app.party[1]
+    frog = next(iter(app.world.creatures.values))
+    for entity in list(app.world.creatures.values):
+        if entity != frog:
+            app.world.remove_entity(entity)
+    app.world.positions.require(player).x = 160
+    app.world.positions.require(player).y = 40
+    app.world.positions.require(companion).x = 170
+    app.world.positions.require(companion).y = 40
+    app.world.positions.require(frog).x = 150
+    app.world.positions.require(frog).y = 40
+    app.world.tiles[40][159] = RUBBLE
+
+    app.handle_key(ord("h"))
+
+    assert app.world.positions.require(player).x == 159
+    assert app.activation.movement_used == 6.0
+
+
+def test_battle_move_is_denied_when_terrain_adjusted_cost_exceeds_remaining() -> None:
+    app = create_app()
+    app.handle_key(ord("y"))
+    player = app.active_actor()
+    companion = app.party[1]
+    frog = next(iter(app.world.creatures.values))
+    for entity in list(app.world.creatures.values):
+        if entity != frog:
+            app.world.remove_entity(entity)
+    app.world.positions.require(player).x = 160
+    app.world.positions.require(player).y = 40
+    app.world.positions.require(companion).x = 170
+    app.world.positions.require(companion).y = 40
+    app.world.positions.require(frog).x = 150
+    app.world.positions.require(frog).y = 40
+    app.world.tiles[40][159] = RUBBLE
+    app.activation.movement_used = app.activation.movement_total - 3.0
+
+    app.handle_key(ord("h"))
+
+    assert app.world.positions.require(player).x == 160
+    assert app.activation.movement_used == app.activation.movement_total - 3.0
+    assert app.messages.current == "No movement remaining."
+
+
 def test_explore_mode_moves_freely_and_party_follows() -> None:
     app = create_app()
     app.handle_key(ord("y"))
@@ -257,6 +313,26 @@ def test_explore_mode_moves_freely_and_party_follows() -> None:
     assert app.major_mode == "explore"
     assert app.world.positions.require(player).x == 159
     assert app.world.positions.require(companion).x == 160
+    assert app.activation.movement_used == 0
+
+
+def test_explore_mode_rubble_movement_is_intentionally_free() -> None:
+    app = create_app()
+    app.handle_key(ord("y"))
+    player, companion = app.party
+    for entity in list(app.world.creatures.values):
+        app.world.remove_entity(entity)
+    app.world.positions.require(player).x = 160
+    app.world.positions.require(player).y = 40
+    app.world.positions.require(companion).x = 162
+    app.world.positions.require(companion).y = 40
+    app.world.tiles[40][159] = RUBBLE
+    app.activation.movement_used = app.activation.movement_total
+
+    app.handle_key(ord("h"))
+
+    assert app.major_mode == "explore"
+    assert app.world.positions.require(player).x == 159
     assert app.activation.movement_used == 0
 
 
@@ -457,6 +533,29 @@ def test_battle_mode_displaces_party_member_and_spends_movement() -> None:
     assert app.messages.current == "You displaced companion."
 
 
+def test_battle_party_displacement_onto_rubble_spends_adjusted_cost() -> None:
+    app = create_app()
+    app.handle_key(ord("y"))
+    player, companion = app.party
+    frog = next(iter(app.world.creatures.values))
+    for entity in list(app.world.creatures.values):
+        if entity != frog:
+            app.world.remove_entity(entity)
+    app.world.positions.require(player).x = 160
+    app.world.positions.require(player).y = 40
+    app.world.positions.require(companion).x = 159
+    app.world.positions.require(companion).y = 40
+    app.world.positions.require(frog).x = 150
+    app.world.positions.require(frog).y = 40
+    app.world.tiles[40][159] = RUBBLE
+
+    app.handle_key(ord("h"))
+
+    assert app.world.positions.require(player).x == 159
+    assert app.world.positions.require(companion).x == 160
+    assert app.activation.movement_used == 6.0
+
+
 def test_attack_spends_action_but_not_movement_and_repeat_attack_is_blocked() -> None:
     app = create_app()
     app.handle_key(ord("y"))
@@ -554,6 +653,53 @@ def test_enemy_activation_uses_default_budget_not_active_party_budget() -> None:
 
     assert app.active_actor() == player
     assert app.world.positions.require(frog).x == 159
+
+
+def test_enemy_step_feasibility_uses_terrain_adjusted_remaining_budget() -> None:
+    app = create_app()
+    app.handle_key(ord("y"))
+    player, companion = app.party
+    frog = next(iter(app.world.creatures.values))
+    for entity in list(app.world.creatures.values):
+        if entity != frog:
+            app.world.remove_entity(entity)
+    app.world.positions.require(player).x = 160
+    app.world.positions.require(player).y = 40
+    app.world.positions.require(companion).x = 161
+    app.world.positions.require(companion).y = 40
+    app.world.positions.require(frog).x = 149
+    app.world.positions.require(frog).y = 40
+    app.world.tiles[40][159] = RUBBLE
+    app.active_party_index = 1
+
+    app.handle_key(ord(" "))
+
+    assert app.active_actor() == player
+    assert app.world.positions.require(frog).x == 158
+
+
+def test_enemy_movement_spending_uses_terrain_adjusted_cost() -> None:
+    app = create_app()
+    app.handle_key(ord("y"))
+    player, companion = app.party
+    frog = next(iter(app.world.creatures.values))
+    for entity in list(app.world.creatures.values):
+        if entity != frog:
+            app.world.remove_entity(entity)
+    app.world.positions.require(player).x = 160
+    app.world.positions.require(player).y = 40
+    app.world.positions.require(companion).x = 161
+    app.world.positions.require(companion).y = 40
+    app.world.positions.require(frog).x = 149
+    app.world.positions.require(frog).y = 40
+    for x in range(150, 160):
+        app.world.tiles[40][x] = RUBBLE
+    app.active_party_index = 1
+
+    app.handle_key(ord(" "))
+
+    assert app.active_actor() == player
+    assert app.world.positions.require(frog).x == 154
 
 
 def test_sync_major_mode_resets_activation_on_mode_transition() -> None:
