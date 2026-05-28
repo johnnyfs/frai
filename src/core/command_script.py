@@ -134,7 +134,15 @@ class RestCommand:
 
 @dataclass(frozen=True, slots=True)
 class ExamineCommand:
-    """`x` — examine target. No-op until M41 examine modal lands."""
+    """`x` — open the M21 examine cursor.
+
+    The runner forwards the key through ``App.handle_key`` which
+    routes through the input system → :class:`ExamineRequest` →
+    ``App.begin_examine``. From the script's point of view this is
+    identical to any other single-key command; the modal that pops
+    up is driven by the same cursor + ``Enter`` / ``Esc`` keys the
+    M20 targeting modal accepts.
+    """
 
 
 @dataclass(frozen=True, slots=True)

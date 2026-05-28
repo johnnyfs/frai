@@ -6,6 +6,7 @@ from src.core.actions import (
     CloseInventory,
     DropItemAttempt,
     EndTurn,
+    ExamineRequest,
     GameOverChoice,
     InteractAttempt,
     InventoryRequest,
@@ -111,6 +112,8 @@ def map_key(
             return InteractAttempt(actor=player, dx=0, dy=0)
         if key_name == ",":
             return PickupAttempt(actor=player)
+        if key_name in ("x", ";"):
+            return ExamineRequest(actor=player)
         if key_name in MOVE_KEYS:
             dx, dy = MOVE_KEYS[key_name]
             return MoveAttempt(actor=player, dx=dx, dy=dy)
