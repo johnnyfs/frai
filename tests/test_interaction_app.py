@@ -1,3 +1,5 @@
+import random
+
 from src.app import create_app
 from src.core.actions import InteractAttempt, MoveAttempt
 from src.core.components import BlocksMovement, Container, Door, Lock, Position, Trap
@@ -110,8 +112,11 @@ def test_handle_key_uses_last_movement_direction_for_interaction() -> None:
     assert app.world.containers.require(container).is_open is True
 
 
-def test_handle_key_refuses_locked_door_via_public_path() -> None:
-    app = create_app()
+def test_handle_key_locked_door_via_public_path_resolves_through_skill_check() -> None:
+    # With a character sheet on the player, the public `e` path no longer
+    # refuses with "You need a way to pick it" - it rolls an implicit check
+    # (M26) and resolves to either an unlock or a "Lock pick failed." message.
+    app = create_app(rng=random.Random(0))
     app.handle_key(ord("y"))
     _clear_hostiles(app)
     app.mode = NormalMode()
@@ -123,14 +128,45 @@ def test_handle_key_refuses_locked_door_via_public_path() -> None:
 
     app.handle_key(ord("e"))
 
-    assert app.messages.current == "It's locked. You need a way to pick it."
-    assert app.world.locks.require(door).is_locked is True
-    assert app.world.doors.require(door).is_open is False
-    assert app.world.blockers.has(door)
+    assert app.messages.current != "It's locked. You need a way to pick it."
+    assert app.messages.current in {"Unlocked and opened.", "Lock pick failed."}
+    if app.messages.current == "Unlocked and opened.":
+        assert app.world.locks.require(door).is_locked is False
+        assert app.world.doors.require(door).is_open is True
+        assert not app.world.blockers.has(door)
+    else:
+        assert app.world.locks.require(door).is_locked is True
+        assert app.world.blockers.has(door)
 
 
-def test_handle_key_refuses_armed_trap_via_public_path_without_damage() -> None:
-    app = create_app()
+def test_handle_key_locked_door_eventually_succeeds_across_seeds() -> None:
+    # Across enough seeds at least one roll passes DC 10, proving the
+    # success path is actually reachable via the public `e` key for a
+    # character-sheet-equipped party member.
+    for seed in range(50):
+        app = create_app(rng=random.Random(seed))
+        app.handle_key(ord("y"))
+        _clear_hostiles(app)
+        app.mode = NormalMode()
+        player_position = app.world.positions.require(app.player)
+        door = _add_feature(app, player_position.x + 1, player_position.y)
+        app.world.doors.add(door, Door())
+        app.world.locks.add(door, Lock(is_locked=True, pick_dc=10))
+        app.world.blockers.add(door, BlocksMovement("locked door"))
+
+        app.handle_key(ord("e"))
+
+        if app.world.locks.require(door).is_locked is False:
+            assert app.world.doors.require(door).is_open is True
+            return
+    raise AssertionError("No seed in 0..49 unlocked DC-10 lock via public e path")
+
+
+def test_handle_key_armed_trap_via_public_path_resolves_through_skill_check() -> None:
+    # M9 used to emit "You sense danger..." for any armed trap touched via
+    # public `e`. With M26 the disarm is now actually attempted using the
+    # actor's DEX modifier; outcome is either disarm or trigger+damage.
+    app = create_app(rng=random.Random(0))
     app.handle_key(ord("y"))
     _clear_hostiles(app)
     app.mode = NormalMode()
@@ -141,9 +177,14 @@ def test_handle_key_refuses_armed_trap_via_public_path_without_damage() -> None:
 
     app.handle_key(ord("e"))
 
-    assert app.messages.current == "You sense danger - you need a way to disarm it."
-    assert app.world.traps.require(trap).is_armed is True
-    assert app.world.combat_stats.require(app.player).hit_points == before_hp
+    assert app.messages.current != "You sense danger - you need a way to disarm it."
+    trap_component = app.world.traps.require(trap)
+    after_hp = app.world.combat_stats.require(app.player).hit_points
+    if trap_component.is_armed is False and after_hp == before_hp:
+        assert "disarmed" in app.messages.current.lower()
+    else:
+        # Failure path: damage taken and trap triggered.
+        assert after_hp == before_hp - 3
 
 
 def test_handle_key_opens_unlocked_door_via_public_path() -> None:
