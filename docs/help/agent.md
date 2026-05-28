@@ -113,7 +113,7 @@ for outcome in outcomes:
 | `,`                | Pick up items on the actor's tile.               |
 | `i`                | Open/close inventory.                            |
 | `r`                | Short rest. No-op until M34 lands.               |
-| `x`                | Examine. No-op until M41 lands.                  |
+| `x`                | Open examine cursor (M21). `;` is an alias.      |
 | `?`                | Open help. No-op until M39 lands.                |
 | `.`                | Wait one tick.                                   |
 | `Enter`            | Confirm the current modal.                       |

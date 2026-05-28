@@ -33,11 +33,13 @@ from src.core.actions import (
     Action,
     DropItemAttempt,
     EndTurn,
+    ExamineRequest,
     InteractAttempt,
     MoveAttempt,
     PickupAttempt,
     ToggleTurnMode,
 )
+from src.core.descriptions import examine_tile
 from src.core.autowalk import (
     AutowalkRequest,
     InterruptReason,
@@ -47,7 +49,7 @@ from src.core.autowalk import (
 from src.core.modes import PlayMode, UIMode, is_turn_based_play, play_mode_for_state
 from src.core.party import CompanionDefinition, companion_definitions_for_player_class
 from src.core.party_state import PartyState
-from src.core.targeting import TargetingState
+from src.core.targeting import TargetingState, any_tile
 from src.core.time import SECONDS_PER_ROUND, SECONDS_PER_TURN, advance as advance_world_clock
 from src.core.turn_controller import TurnController
 from src.core.turns import ActivationState
@@ -361,6 +363,12 @@ class App:
                 self._tick_world_clock(SECONDS_PER_TURN)
             self.sync_play_mode()
             return
+        if isinstance(action, ExamineRequest) and self.ui_mode is UIMode.play:
+            # M21: open the targeting modal in look-only mode. No
+            # action is dispatched, no clock advance, no turn consumed
+            # — confirm just emits description text via the message log.
+            self.begin_examine()
+            return
         if isinstance(action, PickupAttempt) and self.ui_mode is UIMode.play:
             self.apply_effects(self._handle_pickup_or_drop(action))
             if not is_turn_based_play(self.turn.play_mode):
@@ -399,6 +407,65 @@ class App:
     # Targeting (M20)
     # ------------------------------------------------------------------
 
+    def begin_examine(self) -> None:
+        """Open the M21 examine cursor (a look-only targeting modal).
+
+        Examine reuses the M20 :class:`TargetingState` plumbing — the
+        cursor, the predicate gate, and the input handler are all
+        identical. What differs is the ``on_confirm`` callback: instead
+        of building an :class:`Action`, it composes description text
+        via :func:`examine_tile` (which is memory-aware: visible tiles
+        get a live description, remembered tiles a "last seen" prefix,
+        unknown tiles a single refusal line) and emits each line into
+        the message log. Confirm returns ``None`` so the targeting
+        layer treats it as a silent close — no resource is consumed
+        and the world is unchanged.
+
+        The cursor's range is the active actor's vision radius so the
+        player can walk the cursor over the entire memory frontier
+        without confirm rejecting an out-of-range tile. We use the
+        :data:`DEFAULT_VISION_RADIUS` from :mod:`src.core.vision` so a
+        future vision-radius rework lands in both places at once.
+        """
+
+        from src.core.vision import DEFAULT_VISION_RADIUS
+
+        actor = self.active_actor()
+        position = self.world.positions.get(actor)
+        if position is None:
+            # Defensive: no active actor position means there's nothing
+            # to anchor the cursor against. Emit a refusal so the
+            # player isn't left wondering.
+            self.messages.emit("There is nothing to examine.")
+            return
+        origin = (position.x, position.y)
+
+        def _on_examine_confirm(cell: tuple[int, int]) -> None:
+            lines = examine_tile(self.world, self.memory, cell[0], cell[1])
+            # Join into a single emit so the message pager handles the
+            # multi-line case uniformly. ``MessageState.emit`` wraps
+            # long strings automatically.
+            text = " ".join(lines) if lines else ""
+            if text:
+                self.messages.emit(text)
+            # Examine never dispatches an action.
+            return None
+
+        state = TargetingState(
+            origin=origin,
+            cursor=origin,
+            range=DEFAULT_VISION_RADIUS,
+            on_confirm=_on_examine_confirm,
+            predicate=any_tile,
+            label="Examine: pick a tile (Enter to look, Esc to cancel).",
+            # Suppress the default "Targeting cancelled." banner so the
+            # description text the confirm callback just emitted stays
+            # in the log. An Esc/q press still closes the modal cleanly;
+            # we just don't overwrite the player's reason for opening it.
+            cancel_message="",
+        )
+        self.begin_targeting(state)
+
     def begin_targeting(self, state: TargetingState) -> None:
         """Push ``state`` and switch the screen to :class:`UIMode.targeting`.
 
@@ -424,15 +491,22 @@ class App:
 
         Restores the prior :class:`UIMode` (defaulting to :class:`UIMode.play`
         if none was recorded — which is the normal entry path), drops
-        the in-flight state, and emits a short cancellation message.
-        Importantly: no resource is consumed, no turn is advanced.
+        the in-flight state, and emits the state's ``cancel_message``
+        (default: ``"Targeting cancelled."``). The M21 examine flow
+        overrides ``cancel_message`` to an empty string so the
+        description text the on_confirm callback emitted is not
+        overwritten. No resource is consumed; no turn is advanced.
         """
 
         state = self.targeting
         previous = state.previous_mode if state is not None else None
+        cancel_message = (
+            state.cancel_message if state is not None else "Targeting cancelled."
+        )
         self.targeting = None
         self.ui_mode = previous if previous is not None else UIMode.play
-        self.messages.emit("Targeting cancelled.")
+        if cancel_message:
+            self.messages.emit(cancel_message)
 
     def _handle_targeting_key(self, key: int) -> None:
         """Cursor / confirm / cancel input while ``UIMode.targeting``.

@@ -653,6 +653,19 @@ def _modal_snapshot(app: Any) -> ModalSnapshot | None:
             options.append(f"cursor={targeting.cursor[0]},{targeting.cursor[1]}")
             options.append(f"origin={targeting.origin[0]},{targeting.origin[1]}")
             options.append(f"range={targeting.range}")
+            # M21: surface a one-line examine summary at the cursor so
+            # an agentic playtester can read "what's at the cursor"
+            # without separately confirming. We use the same composer
+            # the examine modal does, so the agent text mirrors what
+            # the player would see on confirm.
+            memory = getattr(app, "memory", None)
+            if memory is not None:
+                from src.core.descriptions import examine_tile as _examine
+
+                cx, cy = targeting.cursor
+                examine_lines = _examine(app.world, memory, cx, cy)
+                if examine_lines:
+                    options.append(f"examine={' | '.join(examine_lines)}")
         return ModalSnapshot(kind="targeting", options=options)
     # Future modal kinds (dialogue, shop, examine, help) just report
     # the kind; option content will be filled in as those land.

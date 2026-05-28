@@ -2,6 +2,7 @@ from src.core.actions import (
     CharacterCreationCommand,
     CloseInventory,
     EndTurn,
+    ExamineRequest,
     InteractAttempt,
     InventoryRequest,
     MoveAttempt,
@@ -42,6 +43,15 @@ def test_play_mode_maps_space_to_end_turn() -> None:
 
 def test_play_mode_maps_t_to_turn_mode_toggle() -> None:
     assert map_key(ord("t"), UIMode.play, EntityId(1)) == ToggleTurnMode()
+
+
+def test_play_mode_maps_x_to_examine_request() -> None:
+    assert map_key(ord("x"), UIMode.play, EntityId(1)) == ExamineRequest(EntityId(1))
+
+
+def test_play_mode_maps_semicolon_to_examine_request() -> None:
+    # NetHack-style ``;`` alias.
+    assert map_key(ord(";"), UIMode.play, EntityId(1)) == ExamineRequest(EntityId(1))
 
 
 def test_inventory_mode_maps_close_keys() -> None:

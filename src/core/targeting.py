@@ -90,6 +90,13 @@ class TargetingState:
     ``label`` is a short human-readable string the renderer can drop in
     the message line (e.g. ``"Target a tile (range 6)"``). Optional —
     callers that don't care leave it empty.
+
+    ``cancel_message`` is the text emitted into the log when the modal
+    is closed without dispatching an action (Esc/q, or a confirm where
+    the on_confirm callback returns ``None``). Defaults to the
+    targeting banner; the M21 examine flow overrides it to an empty
+    string so confirm-as-look doesn't clobber the description text the
+    callback just emitted.
     """
 
     origin: tuple[int, int]
@@ -99,6 +106,7 @@ class TargetingState:
     predicate: TargetPredicate = field(default=lambda world, x, y, origin: True)
     previous_mode: UIMode | None = None
     label: str = ""
+    cancel_message: str = "Targeting cancelled."
 
     def in_range(self, x: int, y: int) -> bool:
         """True when ``(x, y)`` is within ``range`` of the origin."""

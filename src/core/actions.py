@@ -99,6 +99,24 @@ class DropItemAttempt:
     gold: int = 0
 
 
+@dataclass(frozen=True, slots=True)
+class ExamineRequest:
+    """Open the M21 examine/look cursor over the world.
+
+    Pressing ``x`` or ``;`` in :class:`UIMode.play` emits this request.
+    The App handles it directly by opening a targeting modal with the
+    ``any_tile`` predicate and an on-confirm callback that emits
+    description text rather than dispatching a world-changing action.
+
+    Examine is **not** an action — it consumes no resource and does
+    not advance any turn or clock. The request type exists so the
+    input-system stays a pure key-to-action mapper and the App owns
+    the targeting plumbing.
+    """
+
+    actor: EntityId
+
+
 Action: TypeAlias = (
     MoveAttempt
     | QuitRequest
@@ -114,4 +132,5 @@ Action: TypeAlias = (
     | InteractAttempt
     | PickupAttempt
     | DropItemAttempt
+    | ExamineRequest
 )

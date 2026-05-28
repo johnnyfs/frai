@@ -104,9 +104,12 @@ the play screen with no cursor pending.
 
 ## Forward seams
 
-- **M21 examine** — opens targeting with `any_tile` and an
-  `on_confirm` that reads the cell's entities / tile and emits
-  descriptive messages instead of an action.
+- **M21 examine** — landed: opens targeting with `any_tile`, a
+  vision-radius range, and an `on_confirm` that emits description
+  text via `src.core.descriptions.examine_tile`. See
+  `docs/help/examine.md`. The examine flow also exercises the
+  per-state `cancel_message` override so Esc closes without
+  clobbering the description with a generic banner.
 - **M11 ranged / spells** — opens targeting with a vision-aware
   predicate, configurable range, and an `on_confirm` that builds
   a `SpellAttempt` (or new equivalent action).
