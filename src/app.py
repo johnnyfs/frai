@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 import curses
 import random
 
+from src.core.action_context import ActionContext, ActionResolver, make_default_resolver
 from src.core.combat import combat_stats_for_sheet, starter_armor_for_class, starter_weapon_for_class
 from src.core.config import MIN_TERMINAL_HEIGHT, MIN_TERMINAL_WIDTH, WORLD_HEIGHT, WORLD_WIDTH
 from src.core.dispatcher import Dispatcher
@@ -94,6 +95,11 @@ class App:
     dispatcher: Dispatcher
     running: bool = True
     vision: VisionSystem = field(default_factory=VisionSystem)
+    # M46 phased resolver. Wraps ``dispatcher`` as the default
+    # ``resolve`` phase, so existing systems flow through it unchanged
+    # while M11/M24/M29 hooks plug into ``pre_check``, ``post_resolve``,
+    # and reaction-hook seams without touching App further.
+    action_resolver: ActionResolver | None = None
     # Auto-walk runtime state (M22). When ``autowalk`` is non-None the
     # main key handler runs repeated single-step moves until the
     # ``step_autowalk`` predicate fires. This is transient state and is
@@ -104,7 +110,29 @@ class App:
 
     def __post_init__(self) -> None:
         self.effect_applier = EffectApplier(self)
+        if self.action_resolver is None:
+            self.action_resolver = make_default_resolver(self.dispatcher)
         self.refresh_vision()
+
+    def resolve_action(self, action: Action) -> list[Effect]:
+        """Run ``action`` through the M46 phased resolver.
+
+        Equivalent to ``self.dispatcher.dispatch(action, self.world)``
+        for the default wiring, but lets pre/post hooks, replacements,
+        and reaction hooks fire. New code paths should prefer this entry
+        point; the bare ``dispatcher.dispatch`` call still exists for
+        callers (and tests) that need the unphased path.
+        """
+        resolver = self.action_resolver
+        assert resolver is not None  # __post_init__ guarantees this
+        context = ActionContext(
+            actor=self.active_actor(),
+            action=action,
+            world=self.world,
+            turn=self.turn,
+        )
+        attempt = resolver.resolve(context)
+        return list(attempt.effects)
 
     def refresh_vision(self) -> None:
         """Recompute the party visible set and update memory.
@@ -343,7 +371,7 @@ class App:
                 self._tick_world_clock(SECONDS_PER_TURN)
             self.sync_play_mode()
             return
-        effects = self.dispatcher.dispatch(action, self.world)
+        effects = self.resolve_action(action)
         self.apply_effects(effects)
         self.sync_play_mode()
 
@@ -369,10 +397,10 @@ class App:
         if is_turn_based_play(self.turn.play_mode):
             if self.turn.active_activation.action_used:
                 return [EmitMessage("Action already used.")]
-            effects = self.dispatcher.dispatch(action, self.world)
+            effects = self.resolve_action(action)
             self.turn.consume_action()
             return effects
-        return self.dispatcher.dispatch(action, self.world)
+        return self.resolve_action(action)
 
     def _resolve_inventory_drop_key(self) -> DropItemAttempt | None:
         """Choose what the active actor drops when `d` is pressed in inventory.
@@ -414,10 +442,10 @@ class App:
         ):
             if self.turn.active_activation.action_used:
                 return [EmitMessage("Action already used.")]
-            effects = self.dispatcher.dispatch(action, self.world)
+            effects = self.resolve_action(action)
             self.turn.consume_action()
             return effects
-        return self.dispatcher.dispatch(action, self.world)
+        return self.resolve_action(action)
 
     def _handle_explore_move(self, action: MoveAttempt) -> list[Effect]:
         displacement = _party_displacement(self.world, self.party.members, action)
@@ -428,7 +456,7 @@ class App:
             for entity in self.party.follow_order
             if self.world.positions.has(entity)
         ]
-        effects = self.dispatcher.dispatch(action, self.world)
+        effects = self.resolve_action(action)
         if not any(
             isinstance(effect, MoveEntity) and effect.entity == action.actor
             for effect in effects
@@ -452,7 +480,7 @@ class App:
         if target is not None:
             if self.turn.active_activation.action_used:
                 return [EmitMessage("Action already used.")]
-            effects = self.dispatcher.dispatch(action, self.world)
+            effects = self.resolve_action(action)
             self.turn.consume_action()
             return effects
 
@@ -460,7 +488,7 @@ class App:
         if not self.turn.can_consume_movement(cost):
             return [EmitMessage("No movement remaining.")]
 
-        effects = self.dispatcher.dispatch(action, self.world)
+        effects = self.resolve_action(action)
         if any(
             isinstance(effect, MoveEntity) and effect.entity == action.actor
             for effect in effects
