@@ -3,6 +3,8 @@ import random
 from typing import Literal
 
 ABILITIES = ("STR", "DEX", "CON", "INT", "WIS", "CHA")
+ClassRole = Literal["martial", "expert", "arcane", "divine", "primal", "hybrid"]
+CreatureSize = Literal["Small", "Medium"]
 
 CreatorStep = Literal[
     "race",
@@ -22,6 +24,14 @@ CreatorCommand = Literal["back", "reroll", "confirm", "choose"]
 class RaceOption:
     name: str
     bonuses: dict[str, int]
+    size: CreatureSize = "Medium"
+    speed: int = 30
+
+
+@dataclass(frozen=True, slots=True)
+class StartingEquipment:
+    weapon: str
+    armor: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,10 +41,16 @@ class ClassOption:
     specializations: tuple[str, ...]
     skill_count: int
     skill_choices: tuple[str, ...]
+    hit_die: int
+    role: ClassRole
+    saving_throw_proficiencies: tuple[str, ...]
+    starting_equipment: StartingEquipment
     cantrip_count: int = 0
     cantrip_choices: tuple[str, ...] = ()
     spell_count: int = 0
     spell_choices: tuple[str, ...] = ()
+    spellcasting_ability: str | None = None
+    resource_hooks: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,6 +60,7 @@ class CharacterSheet:
     specialization: str
     base_attributes: dict[str, int]
     attributes: dict[str, int]
+    level: int = 1
     cantrips: tuple[str, ...] = ()
     spells: tuple[str, ...] = ()
     skills: tuple[str, ...] = ()
@@ -64,12 +81,12 @@ class CharacterCreationState:
 
 RACES: tuple[RaceOption, ...] = (
     RaceOption("Dragonborn", {"STR": 2, "CHA": 1}),
-    RaceOption("Dwarf", {"CON": 2}),
+    RaceOption("Dwarf", {"CON": 2}, speed=25),
     RaceOption("Elf", {"DEX": 2}),
-    RaceOption("Gnome", {"INT": 2}),
+    RaceOption("Gnome", {"INT": 2}, size="Small", speed=25),
     RaceOption("Half-Elf", {"CHA": 2}),
     RaceOption("Half-Orc", {"STR": 2, "CON": 1}),
-    RaceOption("Halfling", {"DEX": 2}),
+    RaceOption("Halfling", {"DEX": 2}, size="Small", speed=25),
     RaceOption("Human", {"STR": 1, "DEX": 1, "CON": 1, "INT": 1, "WIS": 1, "CHA": 1}),
     RaceOption("Tiefling", {"INT": 1, "CHA": 2}),
 )
@@ -166,18 +183,221 @@ DRUID_SPELLS = (
 )
 
 CLASSES: tuple[ClassOption, ...] = (
-    ClassOption("Barbarian", "Primal Path", ("Berserker",), 2, ("Animal Handling", "Athletics", "Intimidation", "Nature", "Perception", "Survival")),
-    ClassOption("Bard", "College", ("Lore",), 3, SKILLS, 2, ARCANE_CANTRIPS, 4, ARCANE_SPELLS),
-    ClassOption("Cleric", "Domain", ("Life",), 2, ("History", "Insight", "Medicine", "Persuasion", "Religion"), 3, DIVINE_CANTRIPS, 4, DIVINE_SPELLS),
-    ClassOption("Druid", "Circle", ("Land",), 2, ("Arcana", "Animal Handling", "Insight", "Medicine", "Nature", "Perception", "Religion", "Survival"), 2, DRUID_CANTRIPS, 4, DRUID_SPELLS),
-    ClassOption("Fighter", "Martial Archetype", ("Champion",), 2, ("Acrobatics", "Animal Handling", "Athletics", "History", "Insight", "Intimidation", "Perception", "Survival")),
-    ClassOption("Monk", "Monastic Tradition", ("Open Hand",), 2, ("Acrobatics", "Athletics", "History", "Insight", "Religion", "Stealth")),
-    ClassOption("Paladin", "Sacred Oath", ("Devotion",), 2, ("Athletics", "Insight", "Intimidation", "Medicine", "Persuasion", "Religion")),
-    ClassOption("Ranger", "Archetype", ("Hunter",), 3, ("Animal Handling", "Athletics", "Insight", "Investigation", "Nature", "Perception", "Stealth", "Survival")),
-    ClassOption("Rogue", "Archetype", ("Thief",), 4, ("Acrobatics", "Athletics", "Deception", "Insight", "Intimidation", "Investigation", "Perception", "Performance", "Persuasion", "Sleight of Hand", "Stealth")),
-    ClassOption("Sorcerer", "Origin", ("Draconic Bloodline",), 2, ("Arcana", "Deception", "Insight", "Intimidation", "Persuasion", "Religion"), 4, ARCANE_CANTRIPS, 2, ARCANE_SPELLS),
-    ClassOption("Warlock", "Patron", ("Fiend",), 2, ("Arcana", "Deception", "History", "Intimidation", "Investigation", "Nature", "Religion"), 2, ARCANE_CANTRIPS, 2, ARCANE_SPELLS),
-    ClassOption("Wizard", "School", ("Evocation",), 2, ("Arcana", "History", "Insight", "Investigation", "Medicine", "Religion"), 3, ARCANE_CANTRIPS, 6, ARCANE_SPELLS),
+    ClassOption(
+        "Barbarian",
+        "Primal Path",
+        ("Berserker",),
+        2,
+        ("Animal Handling", "Athletics", "Intimidation", "Nature", "Perception", "Survival"),
+        12,
+        "martial",
+        ("STR", "CON"),
+        StartingEquipment("greataxe", "none"),
+        resource_hooks=("rage",),
+    ),
+    ClassOption(
+        "Bard",
+        "College",
+        ("Lore",),
+        3,
+        SKILLS,
+        8,
+        "expert",
+        ("DEX", "CHA"),
+        StartingEquipment("rapier", "leather armor"),
+        2,
+        ARCANE_CANTRIPS,
+        4,
+        ARCANE_SPELLS,
+        "CHA",
+        ("spell_slots", "bardic_inspiration"),
+    ),
+    ClassOption(
+        "Cleric",
+        "Domain",
+        ("Life",),
+        2,
+        ("History", "Insight", "Medicine", "Persuasion", "Religion"),
+        8,
+        "divine",
+        ("WIS", "CHA"),
+        StartingEquipment("mace", "scale mail"),
+        3,
+        DIVINE_CANTRIPS,
+        4,
+        DIVINE_SPELLS,
+        "WIS",
+        ("spell_slots", "channel_divinity"),
+    ),
+    ClassOption(
+        "Druid",
+        "Circle",
+        ("Land",),
+        2,
+        (
+            "Arcana",
+            "Animal Handling",
+            "Insight",
+            "Medicine",
+            "Nature",
+            "Perception",
+            "Religion",
+            "Survival",
+        ),
+        8,
+        "primal",
+        ("INT", "WIS"),
+        StartingEquipment("scimitar", "leather armor"),
+        2,
+        DRUID_CANTRIPS,
+        4,
+        DRUID_SPELLS,
+        "WIS",
+        ("spell_slots", "wild_shape"),
+    ),
+    ClassOption(
+        "Fighter",
+        "Martial Archetype",
+        ("Champion",),
+        2,
+        (
+            "Acrobatics",
+            "Animal Handling",
+            "Athletics",
+            "History",
+            "Insight",
+            "Intimidation",
+            "Perception",
+            "Survival",
+        ),
+        10,
+        "martial",
+        ("STR", "CON"),
+        StartingEquipment("longsword", "chain mail"),
+        resource_hooks=("second_wind",),
+    ),
+    ClassOption(
+        "Monk",
+        "Monastic Tradition",
+        ("Open Hand",),
+        2,
+        ("Acrobatics", "Athletics", "History", "Insight", "Religion", "Stealth"),
+        8,
+        "martial",
+        ("STR", "DEX"),
+        StartingEquipment("shortsword", "none"),
+        resource_hooks=("ki",),
+    ),
+    ClassOption(
+        "Paladin",
+        "Sacred Oath",
+        ("Devotion",),
+        2,
+        ("Athletics", "Insight", "Intimidation", "Medicine", "Persuasion", "Religion"),
+        10,
+        "hybrid",
+        ("WIS", "CHA"),
+        StartingEquipment("longsword", "chain mail"),
+        spellcasting_ability="CHA",
+        resource_hooks=("lay_on_hands", "spell_slots"),
+    ),
+    ClassOption(
+        "Ranger",
+        "Archetype",
+        ("Hunter",),
+        3,
+        (
+            "Animal Handling",
+            "Athletics",
+            "Insight",
+            "Investigation",
+            "Nature",
+            "Perception",
+            "Stealth",
+            "Survival",
+        ),
+        10,
+        "hybrid",
+        ("STR", "DEX"),
+        StartingEquipment("shortsword", "scale mail"),
+        spellcasting_ability="WIS",
+        resource_hooks=("spell_slots",),
+    ),
+    ClassOption(
+        "Rogue",
+        "Archetype",
+        ("Thief",),
+        4,
+        (
+            "Acrobatics",
+            "Athletics",
+            "Deception",
+            "Insight",
+            "Intimidation",
+            "Investigation",
+            "Perception",
+            "Performance",
+            "Persuasion",
+            "Sleight of Hand",
+            "Stealth",
+        ),
+        8,
+        "expert",
+        ("DEX", "INT"),
+        StartingEquipment("rapier", "leather armor"),
+        resource_hooks=("sneak_attack",),
+    ),
+    ClassOption(
+        "Sorcerer",
+        "Origin",
+        ("Draconic Bloodline",),
+        2,
+        ("Arcana", "Deception", "Insight", "Intimidation", "Persuasion", "Religion"),
+        6,
+        "arcane",
+        ("CON", "CHA"),
+        StartingEquipment("dagger", "none"),
+        4,
+        ARCANE_CANTRIPS,
+        2,
+        ARCANE_SPELLS,
+        "CHA",
+        ("spell_slots", "sorcery_points"),
+    ),
+    ClassOption(
+        "Warlock",
+        "Patron",
+        ("Fiend",),
+        2,
+        ("Arcana", "Deception", "History", "Intimidation", "Investigation", "Nature", "Religion"),
+        8,
+        "arcane",
+        ("WIS", "CHA"),
+        StartingEquipment("quarterstaff", "leather armor"),
+        2,
+        ARCANE_CANTRIPS,
+        2,
+        ARCANE_SPELLS,
+        "CHA",
+        ("pact_magic",),
+    ),
+    ClassOption(
+        "Wizard",
+        "School",
+        ("Evocation",),
+        2,
+        ("Arcana", "History", "Insight", "Investigation", "Medicine", "Religion"),
+        6,
+        "arcane",
+        ("INT", "WIS"),
+        StartingEquipment("quarterstaff", "none"),
+        3,
+        ARCANE_CANTRIPS,
+        6,
+        ARCANE_SPELLS,
+        "INT",
+        ("spell_slots", "arcane_recovery"),
+    ),
 )
 
 
@@ -200,6 +420,13 @@ def race_by_name(name: str | None) -> RaceOption | None:
 
 def class_by_name(name: str | None) -> ClassOption | None:
     return next((character_class for character_class in CLASSES if character_class.name == name), None)
+
+
+def require_class(name: str) -> ClassOption:
+    character_class = class_by_name(name)
+    if character_class is None:
+        raise KeyError(f"Unknown character class: {name}")
+    return character_class
 
 
 def visible_steps(state: CharacterCreationState) -> tuple[CreatorStep, ...]:
