@@ -20,13 +20,13 @@ from src.core.items import (
     item_count,
     transfer_item,
 )
-from src.core.modes import NormalMode
+from src.core.modes import UIMode
 
 
 def _clear_hostiles(app) -> None:
     for entity in list(app.world.creatures.values):
         app.world.remove_entity(entity)
-    app.sync_major_mode()
+    app.sync_play_mode()
 
 
 def _add_container(app, x: int, y: int, *, contents=None, gold: int = 0):
@@ -46,7 +46,7 @@ def test_opening_container_exposes_inventory_component() -> None:
     app = create_app()
     app.handle_key(ord("y"))
     _clear_hostiles(app)
-    app.mode = NormalMode()
+    app.ui_mode = UIMode.play
     player_position = app.world.positions.require(app.player)
     container = _add_container(app, player_position.x + 1, player_position.y)
 
@@ -66,7 +66,7 @@ def test_opening_container_preserves_seeded_contents() -> None:
     app = create_app()
     app.handle_key(ord("y"))
     _clear_hostiles(app)
-    app.mode = NormalMode()
+    app.ui_mode = UIMode.play
     player_position = app.world.positions.require(app.player)
     container = _add_container(
         app,
@@ -88,7 +88,7 @@ def test_interaction_attempt_opens_container_and_reveals_inventory() -> None:
     app = create_app()
     app.handle_key(ord("y"))
     _clear_hostiles(app)
-    app.mode = NormalMode()
+    app.ui_mode = UIMode.play
     player_position = app.world.positions.require(app.player)
     container = _add_container(
         app,
@@ -110,7 +110,7 @@ def test_items_transfer_between_party_inventory_and_container() -> None:
     app = create_app()
     app.handle_key(ord("y"))
     _clear_hostiles(app)
-    app.mode = NormalMode()
+    app.ui_mode = UIMode.play
     player_position = app.world.positions.require(app.player)
     container = _add_container(
         app,
@@ -165,7 +165,7 @@ def test_container_contents_survive_world_deepcopy() -> None:
     app = create_app()
     app.handle_key(ord("y"))
     _clear_hostiles(app)
-    app.mode = NormalMode()
+    app.ui_mode = UIMode.play
     player_position = app.world.positions.require(app.player)
     container = _add_container(
         app,
@@ -201,7 +201,7 @@ def test_closing_a_container_is_out_of_scope() -> None:
     app = create_app()
     app.handle_key(ord("y"))
     _clear_hostiles(app)
-    app.mode = NormalMode()
+    app.ui_mode = UIMode.play
     player_position = app.world.positions.require(app.player)
     container = _add_container(
         app,
