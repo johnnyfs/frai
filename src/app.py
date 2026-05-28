@@ -29,6 +29,7 @@ from src.core.effects import (
 from src.core.entity import EntityId
 from src.core.actions import EndTurn, MoveAttempt, ToggleTurnMode
 from src.core.modes import GameMode, GameOverMode, NormalMode, StartChoiceMode
+from src.core.party import CompanionDefinition, companion_definitions_for_player_class
 from src.core.turns import (
     ActivationState,
     MajorMode,
@@ -94,6 +95,14 @@ class App:
                 self.running = False
             elif isinstance(effect, SetCharacterSheet):
                 _assign_character_sheet(self.world, effect.entity, effect.sheet)
+                if effect.entity == self.player:
+                    self.party = _replace_companions_for_player_sheet(
+                        self.world,
+                        self.player,
+                        self.party,
+                        effect.sheet,
+                    )
+                    self.active_party_index = 0
             elif isinstance(effect, DamageEntity):
                 stats = self.world.combat_stats.get(effect.entity)
                 if stats is not None:
@@ -278,21 +287,51 @@ def create_app(width: int = WORLD_WIDTH, height: int = WORLD_HEIGHT) -> App:
 def _build_party_world(width: int, height: int) -> tuple[BuiltRoom, list[EntityId]]:
     built = build_room_world(width=width, height=height)
     built.world.blockers.add(built.player, BlocksMovement("occupied"))
-    companion = _add_yolo_party_member(built.world, built.player, random.Random())
-    return built, [built.player, companion]
+    player_sheet = yolo_sheet()
+    _assign_character_sheet(built.world, built.player, player_sheet)
+    party = _add_companions_for_player_sheet(built.world, built.player, player_sheet)
+    return built, party
 
 
-def _add_yolo_party_member(world: World, anchor: EntityId, rng: random.Random) -> EntityId:
+def _replace_companions_for_player_sheet(
+    world: World,
+    player: EntityId,
+    party: list[EntityId],
+    sheet: CharacterSheet,
+) -> list[EntityId]:
+    for entity in party[1:]:
+        world.remove_entity(entity)
+    return _add_companions_for_player_sheet(world, player, sheet)
+
+
+def _add_companions_for_player_sheet(
+    world: World,
+    player: EntityId,
+    sheet: CharacterSheet,
+) -> list[EntityId]:
+    party = [player]
+    rng = random.Random(0)
+    for definition in companion_definitions_for_player_class(sheet.character_class):
+        party.append(_add_companion(world, player, definition, rng))
+    return party
+
+
+def _add_companion(
+    world: World,
+    anchor: EntityId,
+    definition: CompanionDefinition,
+    rng: random.Random,
+) -> EntityId:
     anchor_position = world.positions.require(anchor)
     x, y = _nearby_open_position(world, anchor_position.x, anchor_position.y, rng)
     entity = world.create_entity()
     world.positions.add(entity, Position(x=x, y=y))
-    world.presentations.add(entity, Presentation("1"))
+    world.presentations.add(entity, Presentation("#"))
     world.blockers.add(entity, BlocksMovement("occupied"))
     world.player_controlled.add(entity, PlayerControlled())
-    world.names.add(entity, Name("companion"))
+    world.names.add(entity, Name(definition.name))
     world.factions.add(entity, Faction("player"))
-    _assign_character_sheet(world, entity, yolo_sheet())
+    _assign_character_sheet(world, entity, definition.sheet)
     return entity
 
 

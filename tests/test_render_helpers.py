@@ -120,7 +120,7 @@ def test_party_glyphs_follow_roster_order() -> None:
     world.positions.add(companion, Position(x=2, y=1))
 
     assert _presentation_for(player, world, 1, 1, [player, companion]).char == "@"
-    assert _presentation_for(player, world, 2, 1, [player, companion]).char == "1"
+    assert _presentation_for(player, world, 2, 1, [player, companion]).char == "#"
 
 
 def test_terrain_render_tokens_and_colors_are_projection_only() -> None:
