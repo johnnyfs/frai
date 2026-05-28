@@ -52,6 +52,7 @@ from src.core.spells import (
     spell_save_dc,
     spellcasting_ability_modifier,
 )
+from src.core.stealth import NoiseLevel, propagate_noise
 from src.core.world import World
 
 
@@ -100,6 +101,13 @@ class SpellSystem:
             return DispatchResult(
                 effects=[EmitMessage("Caster has no position.")], cancel=True
             )
+
+        # M23: every spell carries a verbal component in this catalog
+        # (we don't yet model "S-only" spells), so casting always ramps
+        # nearby hostiles to AWARE. This happens before the effects
+        # resolve so a fizzled cast still gives away the caster's
+        # position — the words were spoken either way.
+        propagate_noise(world, action.actor, NoiseLevel.LOUD)
 
         effects = self._build_effects(spell, action, world, caster_position)
         return DispatchResult(effects=effects, cancel=True)

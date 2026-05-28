@@ -8,6 +8,7 @@ from src.core.effects import Effect, MoveEntity
 from src.core.entity import EntityId
 from src.core.turns import MOVEMENT_TOTAL_FEET
 from src.core.world import World
+from src.systems.awareness_system import is_aware_of
 from src.systems.combat_system import CombatSystem
 from src.systems.movement_system import movement_cost_for_attempt
 
@@ -146,7 +147,21 @@ def _nearest_living_party_member(
     enemy: EntityId,
     party: list[EntityId],
 ) -> EntityId | None:
-    candidates = [entity for entity in party if _can_take_turn(world, entity)]
+    """Pick the closest party member the enemy is actually aware of.
+
+    The awareness predicate (M23) honors per-observer trackers and the
+    target's ``hidden`` condition, so a sneaking party member that the
+    enemy hasn't perceived is invisible to the AI's target picker. If
+    no party member registers as "aware", the enemy has nobody to
+    chase and the activation no-ops — same outcome as "no candidates
+    in party".
+    """
+
+    candidates = [
+        entity
+        for entity in party
+        if _can_take_turn(world, entity) and is_aware_of(world, enemy, entity)
+    ]
     if not candidates:
         return None
     enemy_position = world.positions.require(enemy)

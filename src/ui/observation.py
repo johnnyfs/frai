@@ -113,7 +113,13 @@ class ActorSummary:
 
 @dataclass(frozen=True, slots=True)
 class VisibleEntity:
-    """Anything visible to the active actor that isn't the party."""
+    """Anything visible to the active actor that isn't the party.
+
+    ``awareness`` is the M23 awareness state the visible entity holds
+    toward the active actor — ``unaware`` / ``suspicious`` / ``aware``
+    — or ``None`` when the entity carries no :class:`AwarenessTracker`.
+    Agents use this to decide whether stealth is worth attempting.
+    """
 
     id: int
     name: str
@@ -124,6 +130,7 @@ class VisibleEntity:
     max_hp: int | None = None
     kind: str | None = None  # creature.kind if present, else a tag like "door"
     distance: int = 0  # Chebyshev distance from the active actor
+    awareness: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -229,6 +236,7 @@ class Observation:
                     max_hp=item.get("max_hp"),
                     kind=item.get("kind"),
                     distance=int(item.get("distance", 0)),
+                    awareness=item.get("awareness"),
                 )
                 for item in payload.get("visible_entities", [])
             ],
@@ -561,6 +569,7 @@ def _visible_entities(app: Any, active: ActorSummary | None) -> list[VisibleEnti
     party_ids = {int(entity) for entity in app.party}
     origin_x, origin_y = active.position
     in_view = _visible_filter(app, origin_x, origin_y)
+    awareness_store = getattr(world, "awareness_trackers", None)
 
     visible: list[VisibleEntity] = []
     for entity, position in world.positions.values.items():
@@ -573,6 +582,11 @@ def _visible_entities(app: Any, active: ActorSummary | None) -> list[VisibleEnti
         faction = world.factions.get(entity)
         presentation = world.presentations.get(entity)
         kind = creature.kind if creature is not None else _non_creature_kind(world, entity)
+        awareness_value: str | None = None
+        if awareness_store is not None:
+            tracker = awareness_store.get(entity)
+            if tracker is not None:
+                awareness_value = tracker.state_of(active.id).value
         visible.append(
             VisibleEntity(
                 id=int(entity),
@@ -584,6 +598,7 @@ def _visible_entities(app: Any, active: ActorSummary | None) -> list[VisibleEnti
                 max_hp=stats.max_hit_points if stats is not None else None,
                 kind=kind,
                 distance=max(abs(position.x - origin_x), abs(position.y - origin_y)),
+                awareness=awareness_value,
             )
         )
     visible.sort(key=lambda item: (item.distance, item.id))
@@ -727,7 +742,15 @@ def _available_actions(
     if ui_mode is not UIMode.play or active is None:
         return []
 
-    actions: list[str] = ["move", "interact", "inventory", "pickup", "quit"]
+    actions: list[str] = [
+        "move",
+        "interact",
+        "inventory",
+        "pickup",
+        "sneak",
+        "perceive",
+        "quit",
+    ]
     # The cast action is only meaningful when the active actor has a
     # spell list. We surface it as the same "cast" token regardless of
     # the catalog content so the harness sees a uniform name.

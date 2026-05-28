@@ -58,8 +58,10 @@ from src.core.command_script import (
     InteractCommand,
     InventoryCommand,
     MoveCommand,
+    PerceiveCommand,
     PickupCommand,
     RestCommand,
+    SneakCommand,
     SpellMenuCommand,
     WaitCommand,
     parse as parse_script,
@@ -80,6 +82,8 @@ _KEY_EXAMINE = ord("x")
 _KEY_HELP = ord("?")
 _KEY_WAIT = ord(".")
 _KEY_SPELL_MENU = ord("s")  # M11 spell menu opener.
+_KEY_SNEAK = ord("z")  # M23 stealth attempt.
+_KEY_PERCEIVE = ord("p")  # M23 perception attempt.
 _KEY_SPACE = ord(" ")  # ``EndTurn`` / message advance.
 _KEY_ENTER = 10  # ASCII LF — ``handle_key`` treats this as a no-op today.
 _KEY_ESC = 27  # ASCII ESC — same, reserved for M39 / M41.
@@ -183,6 +187,10 @@ def run_command(app: Any, command: Command) -> CommandOutcome:
         return _run_simple_key(app, command, _KEY_SPACE)
     if isinstance(command, SpellMenuCommand):
         return _run_simple_key(app, command, _KEY_SPELL_MENU)
+    if isinstance(command, SneakCommand):
+        return _run_simple_key(app, command, _KEY_SNEAK)
+    if isinstance(command, PerceiveCommand):
+        return _run_simple_key(app, command, _KEY_PERCEIVE)
     if isinstance(command, ConfirmCommand):
         return _run_simple_key(app, command, _KEY_ENTER)
     if isinstance(command, CancelCommand):

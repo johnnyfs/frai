@@ -6,8 +6,10 @@ from src.core.actions import (
     InteractAttempt,
     InventoryRequest,
     MoveAttempt,
+    PerceptionAttempt,
     QuitConfirm,
     QuitRequest,
+    SneakAttempt,
     StartChoice,
     ToggleTurnMode,
 )
@@ -52,6 +54,16 @@ def test_play_mode_maps_x_to_examine_request() -> None:
 def test_play_mode_maps_semicolon_to_examine_request() -> None:
     # NetHack-style ``;`` alias.
     assert map_key(ord(";"), UIMode.play, EntityId(1)) == ExamineRequest(EntityId(1))
+
+
+def test_play_mode_maps_z_to_sneak_attempt() -> None:
+    assert map_key(ord("z"), UIMode.play, EntityId(1)) == SneakAttempt(actor=EntityId(1))
+
+
+def test_play_mode_maps_p_to_perception_attempt() -> None:
+    assert map_key(ord("p"), UIMode.play, EntityId(1)) == PerceptionAttempt(
+        actor=EntityId(1)
+    )
 
 
 def test_inventory_mode_maps_close_keys() -> None:

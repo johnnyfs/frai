@@ -157,6 +157,37 @@ class DropItemAttempt:
 
 
 @dataclass(frozen=True, slots=True)
+class SneakAttempt:
+    """Actor tries to enter the ``hidden`` condition (M23 stealth).
+
+    Resolution is a Dexterity (Stealth) check at DC 10 by default. On
+    success the actor gains the ``hidden`` condition and the engine's
+    awareness queries stop auto-spotting them. On failure no condition
+    is applied; if the actor was already hidden the failure also
+    breaks stealth.
+    """
+
+    actor: EntityId
+    dc: int = 10
+
+
+@dataclass(frozen=True, slots=True)
+class PerceptionAttempt:
+    """Actor tries to spot every hidden creature within sight (M23).
+
+    DC 10 Wisdom (Perception) check by default. On success the actor's
+    awareness tracker is set to ``aware`` for every currently-hidden
+    creature in their visible set; the corresponding targets also have
+    their ``hidden`` condition stripped (they're no longer hidden from
+    *this* observer, and the M23 scope treats hidden as a global tag
+    rather than a per-observer flag).
+    """
+
+    actor: EntityId
+    dc: int = 10
+
+
+@dataclass(frozen=True, slots=True)
 class ExamineRequest:
     """Open the M21 examine/look cursor over the world.
 
@@ -194,4 +225,6 @@ Action: TypeAlias = (
     | SpellMenuRequest
     | CloseSpellMenu
     | SpellMenuChoice
+    | SneakAttempt
+    | PerceptionAttempt
 )

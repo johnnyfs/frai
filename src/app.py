@@ -109,6 +109,7 @@ from src.systems.quit_system import QuitSystem
 from src.systems.render_system import render
 from src.systems.spell_system import SpellSystem
 from src.systems.start_system import StartSystem, yolo_sheet
+from src.systems.stealth_system import StealthSystem
 from src.systems.vision_system import VisionSystem
 from src.ui.screen import Screen
 
@@ -1468,6 +1469,7 @@ def create_app(
     combat = CombatSystem()
     interaction_rng = rng if rng is not None else random.Random()
     spell_rng = rng if rng is not None else random.Random()
+    stealth_rng = rng if rng is not None else random.Random()
     dispatcher = Dispatcher(
         systems=[
             StartSystem(),
@@ -1478,6 +1480,7 @@ def create_app(
             InteractionSystem(rng=interaction_rng),
             LootSystem(),
             SpellSystem(rng=spell_rng),
+            StealthSystem(rng=stealth_rng),
             movement,
             combat,
         ]

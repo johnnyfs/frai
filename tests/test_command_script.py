@@ -15,8 +15,10 @@ from src.core.command_script import (
     InteractCommand,
     InventoryCommand,
     MoveCommand,
+    PerceiveCommand,
     PickupCommand,
     RestCommand,
+    SneakCommand,
     WaitCommand,
     parse,
 )
@@ -88,6 +90,13 @@ def test_parse_full_grammar_one_of_each() -> None:
         ConfirmCommand(),
         CancelCommand(),
     ]
+
+
+def test_parse_sneak_and_perceive_tokens() -> None:
+    """``z`` and ``p`` (M23) parse to the stealth/perception commands."""
+
+    assert parse("z") == [SneakCommand()]
+    assert parse("p") == [PerceiveCommand()]
 
 
 def test_parse_unknown_token_raises() -> None:
