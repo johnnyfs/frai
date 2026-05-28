@@ -42,8 +42,10 @@ from src.testing.fixtures._helpers import (
     make_fixture_app,
     spawn_chest,
     spawn_door,
+    spawn_info_npc,
     spawn_kobold,
     spawn_kobold_archer,
+    spawn_recruit_npc,
     spawn_shopkeeper,
     spawn_trap,
 )
@@ -176,6 +178,60 @@ def _build_container_loot(_app: App, rng: random.Random | None = None) -> App:
             py,
             items=("weapon.dagger", "consumable.healing_potion"),
             gold=25,
+        )
+
+    return make_fixture_app(rng=rng if rng is not None else _fixture_rng(), populate=populate)
+
+
+def _build_npc_dialogue(_app: App, rng: random.Random | None = None) -> App:
+    """Three M13 NPCs (info, recruit, shopkeeper) flanking the party.
+
+    Lays out one NPC per cardinal so a playtest harness can step toward
+    any of them, press ``e``, and drive the dialogue modal. The info
+    NPC sits east, the recruit south, the shopkeeper north.
+    """
+
+    def populate(room: FixtureRoom, player: EntityId, party: list[EntityId]) -> None:
+        px, py = (
+            room.world.positions.require(player).x,
+            room.world.positions.require(player).y,
+        )
+        # Spawn at +2 offsets so we don't share the tile with the
+        # player, but a companion placed by the YOLO helper might
+        # still land on one of these. Evict any occupants of the
+        # three target tiles before spawning so collisions surface
+        # cleanly (matches the pattern in _build_combat_simple).
+        npc_tiles = ((px + 2, py), (px, py + 2), (px, py - 2))
+        clear_tiles_for_spawn(
+            room.world,
+            tiles=npc_tiles,
+            movable=tuple(party[1:]),
+            bounds=room.floor_bounds,
+            avoid=((px, py),),
+        )
+        spawn_info_npc(
+            room.world,
+            *npc_tiles[0],
+            name="Old Gerda",
+            line="The dungeon lies east of town -- mind the dark.",
+        )
+        spawn_recruit_npc(
+            room.world,
+            *npc_tiles[1],
+            name="Karn the Wanderer",
+            ask_text="I can swing for coin if you'll have me. Join up?",
+            accept_text="Then you have my blade.",
+        )
+        spawn_shopkeeper(
+            room.world,
+            *npc_tiles[2],
+            name="Quartermaster",
+            gold=200,
+            stock=(
+                "weapon.shortsword",
+                "armor.leather",
+                "consumable.healing_potion",
+            ),
         )
 
     return make_fixture_app(rng=rng if rng is not None else _fixture_rng(), populate=populate)
@@ -349,6 +405,12 @@ _FIXTURES: tuple[tuple[str, str, Callable[[App], App], tuple[str, ...]], ...] = 
         "Stationary shopkeeper with a stocked inventory; M12 buy/sell smoke.",
         _build_shop_basic,
         ("Quartermaster",),
+    ),
+    (
+        "npc_dialogue",
+        "Three M13 NPCs (info, recruit, shopkeeper) around the party; dialogue modal smoke.",
+        _build_npc_dialogue,
+        ("Old Gerda", "Karn the Wanderer", "Quartermaster"),
     ),
     (
         "vision_corridor",

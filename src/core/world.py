@@ -21,6 +21,9 @@ from src.core.components import (
     Lock,
     LootDrop,
     Name,
+    NPC,
+    NPCDialogue,
+    NPCKind,
     PlayerControlled,
     Position,
     Presentation,
@@ -29,6 +32,7 @@ from src.core.components import (
     Weapon,
 )
 from src.core.conditions import ConditionStore
+from src.core.dialogue import DialogueTree
 from src.core.entity import EntityId
 from src.core.factions import AggroOverride, AggroOverrideList, FactionId, Relation
 from src.core.loot import DropTable, GoldDrop, ItemDrop
@@ -107,6 +111,10 @@ class World:
     aggro_overrides: ComponentStore[AggroOverrideList] = field(
         default_factory=lambda: ComponentStore({})
     )
+    npcs: ComponentStore[NPC] = field(default_factory=lambda: ComponentStore({}))
+    npc_dialogues: ComponentStore[NPCDialogue] = field(
+        default_factory=lambda: ComponentStore({})
+    )
     clock: WorldTime = field(default_factory=WorldTime)
     schedule: Schedule = field(default_factory=Schedule)
 
@@ -183,6 +191,8 @@ class World:
             ("god_modes", self.god_modes),
             ("conditions", self.conditions),
             ("aggro_overrides", self.aggro_overrides),
+            ("npcs", self.npcs),
+            ("npc_dialogues", self.npc_dialogues),
         ]
 
     def name_for(self, entity: EntityId) -> str:
@@ -329,6 +339,10 @@ def _component_to_dict(component: Any) -> Any:
                 for entry in component.overrides
             ],
         }
+    if isinstance(component, NPC):
+        return {"kind": component.kind.value}
+    if isinstance(component, NPCDialogue):
+        return {"tree": component.tree.to_dict()}
     if is_dataclass(component):
         return asdict(component)
     # Fallback: best-effort string conversion. Should never trip in
@@ -404,6 +418,16 @@ def _component_from_dict(name: str, payload: Any) -> Any:
     if name == "god_modes":
         # Never rebuilt — see GodMode docs.
         return None
+    if name == "npcs":
+        kind_raw = payload.get("kind", NPCKind.INFO.value) if isinstance(payload, dict) else NPCKind.INFO.value
+        try:
+            kind = NPCKind(kind_raw)
+        except ValueError:
+            kind = NPCKind.INFO
+        return NPC(kind=kind)
+    if name == "npc_dialogues":
+        tree_payload = payload.get("tree", {}) if isinstance(payload, dict) else {}
+        return NPCDialogue(tree=DialogueTree.from_dict(tree_payload))
     if name == "aggro_overrides":
         entries: list[AggroOverride] = []
         for entry in payload.get("overrides", []) if isinstance(payload, dict) else []:

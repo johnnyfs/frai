@@ -4,6 +4,7 @@ from types import MappingProxyType
 from typing import Mapping
 
 from src.core.components import Presentation
+from src.core.dialogue import DialogueState
 from src.core.character_creation import (
     ABILITIES,
     can_advance,
@@ -81,6 +82,7 @@ def render(
     targeting_cursor: tuple[int, int] | None = None,
     targeting_origin: tuple[int, int] | None = None,
     targeting_range: int = 0,
+    dialogue: DialogueState | None = None,
 ) -> None:
     screen.clear()
     layout = Layout(width=screen.width, height=screen.height)
@@ -107,6 +109,10 @@ def render(
 
     if ui_mode is UIMode.inventory:
         _render_inventory(screen, layout, world, observer)
+        return
+
+    if ui_mode is UIMode.dialogue and dialogue is not None:
+        _render_dialogue(screen, layout, world, dialogue)
         return
 
     screen.print_line(
@@ -375,6 +381,52 @@ def _render_inventory(screen: Screen, layout: Layout, world: World, observer: En
     for index, line in enumerate(_inventory_lines(world, observer)):
         _line(screen, layout, layout.map_top + 4 + index, line)
     _line(screen, layout, layout.status_y, "i/q/b close")
+    screen.refresh()
+
+
+def _render_dialogue(
+    screen: Screen,
+    layout: Layout,
+    world: World,
+    dialogue: DialogueState,
+) -> None:
+    """Draw the dialogue modal: speaker name, line, numbered options.
+
+    The speaker name comes from the world (the entity's :class:`Name`
+    component) so a single dialogue tree can be reused across NPCs
+    without baking the name into the tree. The line itself is the
+    raw text from the current :class:`DialogueNode`.
+    """
+
+    node = dialogue.node()
+    speaker_name = world.name_for(dialogue.speaker)
+    _line(screen, layout, layout.message_y, "Dialogue")
+    _line(screen, layout, layout.map_top, speaker_name)
+    _line(screen, layout, layout.map_top + 1, "-" * layout.playfield_width)
+    _line(screen, layout, layout.map_top + 3, node.line.text)
+
+    if node.options:
+        for index, option in enumerate(node.options):
+            _line(
+                screen,
+                layout,
+                layout.map_top + 5 + index,
+                f"{index + 1} - {option.label}",
+            )
+        _line(
+            screen,
+            layout,
+            layout.status_y,
+            "1-9 select, Esc/q close",
+        )
+    else:
+        _line(
+            screen,
+            layout,
+            layout.map_top + 5,
+            "[Press Enter or Esc to close]",
+        )
+        _line(screen, layout, layout.status_y, "Enter/Esc close")
     screen.refresh()
 
 
