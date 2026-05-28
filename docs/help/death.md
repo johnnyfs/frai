@@ -111,6 +111,38 @@ The restore fires even when the rest itself is interrupted by an
 encounter check — the SRD lets a stable actor regain 1 HP after enough
 time has passed regardless of whether the rest completes.
 
+## Input while unconscious
+
+An unconscious active actor is **incapacitated**. The M29 input gate in
+`App.handle_key` refuses every turn-consuming key (movement, attack,
+examine, cast, spell menu, interact, pickup, drop, sneak, perception
+sweep, rest menu, autowalk, and the inline inventory `d` drop) with the
+message `You are unconscious.` No resource is consumed.
+
+UI keys remain accessible so the player can swap focus, inspect the
+party, or pass control:
+
+- `i` opens the inventory modal.
+- `?` opens the help modal.
+- `P` opens the party roster.
+- `space` / `EndTurn` passes the turn to the next active actor.
+- `t` toggles between turn-based and explore play modes.
+- `q` opens the quit-confirm modal.
+
+A teammate can then heal the downed actor through the usual
+`ApplyHealing` path, which clears the unconscious condition and the
+`DeathSaves` row in one shot. The next time the revived actor's turn
+comes up, the gate is gone and all action keys resolve normally.
+
+## Game-over teardown (#119)
+
+When a PC dies for real — either through the third death-save failure
+or the SRD massive-damage rule — `_apply_kill_entity` pops the
+`DeathSaves` row and ends the `unconscious` condition before flipping
+to `UIMode.game_over`. Leaving those artefacts attached caused the
+round-tick driver to keep rolling death saves on the corpse and
+serialised a zombie downed state into the save file.
+
 ## Party wipe → game-over
 
 When the post-effect tick detects that every party member is either
