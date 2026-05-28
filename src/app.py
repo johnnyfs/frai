@@ -16,7 +16,7 @@ from src.core.components import (
     Position,
     Presentation,
 )
-from src.core.character_creation import CharacterSheet
+from src.core.character_creation import CharacterCreationState, CharacterSheet
 from src.core.items import add_item, armor_item_id_for_name, weapon_item_id_for_name
 from src.core.effects import (
     Effect,
@@ -26,15 +26,10 @@ from src.core.effects import (
 from src.core.effects_applier import EffectApplier
 from src.core.entity import EntityId
 from src.core.actions import EndTurn, InteractAttempt, MoveAttempt, ToggleTurnMode
-from src.core.modes import GameMode, GameOverMode, NormalMode, StartChoiceMode
+from src.core.modes import PlayMode, UIMode, is_turn_based_play, play_mode_for_state
 from src.core.party import CompanionDefinition, companion_definitions_for_player_class
 from src.core.time import SECONDS_PER_ROUND, SECONDS_PER_TURN, advance as advance_world_clock
-from src.core.turns import (
-    ActivationState,
-    MajorMode,
-    is_turn_based,
-    major_mode_for_state,
-)
+from src.core.turns import ActivationState
 from src.core.world import World
 from src.map.room_builder import BuiltRoom, build_room_world
 from src.systems.game_over_system import GameOverSystem
@@ -67,8 +62,9 @@ class App:
     dispatcher: Dispatcher
     activation: ActivationState = field(default_factory=ActivationState)
     messages: MessageState = field(default_factory=MessageState)
-    mode: GameMode = field(default_factory=StartChoiceMode)
-    major_mode: MajorMode = "explore"
+    ui_mode: UIMode = UIMode.start
+    play_mode: PlayMode = PlayMode.explore
+    character_creation_state: CharacterCreationState | None = None
     facing: tuple[int, int] = (1, 0)
     voluntary_turn_based: bool = False
     running: bool = True
@@ -82,59 +78,86 @@ class App:
         return self.active_actor()
 
     def active_actor(self) -> EntityId:
-        if not is_turn_based(self.major_mode):
+        if not is_turn_based_play(self.play_mode):
             return self.player
         return self.party[self.active_party_index]
+
+    @property
+    def current_play_mode(self) -> PlayMode:
+        """PlayMode is only meaningful while UIMode == play.
+
+        Reading it from any other UIMode is a programming error: the
+        gameplay state machine has no defined semantics behind a modal
+        screen. We raise instead of silently returning a stale value.
+        """
+
+        if self.ui_mode is not UIMode.play:
+            raise RuntimeError(
+                f"PlayMode is undefined while ui_mode={self.ui_mode!r}"
+            )
+        return self.play_mode
 
     def apply_effects(self, effects: list[Effect]) -> None:
         self.effect_applier.apply_all(effects)
 
     def handle_key(self, key: int) -> None:
-        if self.messages.awaiting_more and not isinstance(self.mode, GameOverMode):
+        if self.messages.awaiting_more and self.ui_mode is not UIMode.game_over:
             self.messages.advance()
             return
-        self.sync_major_mode()
-        action = map_key(key, self.mode, self.active_actor())
-        if isinstance(action, EndTurn) and isinstance(self.mode, NormalMode):
-            if is_turn_based(self.major_mode):
+        self.sync_play_mode()
+        action = map_key(
+            key,
+            self.ui_mode,
+            self.active_actor(),
+            character_creation_state=self.character_creation_state,
+        )
+        if isinstance(action, EndTurn) and self.ui_mode is UIMode.play:
+            if is_turn_based_play(self.play_mode):
                 self.advance_party_turn()
             return
-        if isinstance(action, ToggleTurnMode) and isinstance(self.mode, NormalMode):
+        if isinstance(action, ToggleTurnMode) and self.ui_mode is UIMode.play:
             self.apply_effects(self._toggle_turn_mode())
-            self.sync_major_mode()
+            self.sync_play_mode()
             return
-        if isinstance(action, InteractAttempt) and isinstance(self.mode, NormalMode):
+        if isinstance(action, InteractAttempt) and self.ui_mode is UIMode.play:
             if action.dx == 0 and action.dy == 0:
                 action = InteractAttempt(action.actor, self.facing[0], self.facing[1], action.check_result)
             self.apply_effects(self._handle_interaction(action))
-            if not is_turn_based(self.major_mode):
+            if not is_turn_based_play(self.play_mode):
                 self._tick_world_clock(SECONDS_PER_TURN)
-            self.sync_major_mode()
+            self.sync_play_mode()
             return
-        if isinstance(action, MoveAttempt) and isinstance(self.mode, NormalMode):
+        if isinstance(action, MoveAttempt) and self.ui_mode is UIMode.play:
             if action.dx != 0 or action.dy != 0:
                 self.facing = (action.dx, action.dy)
-            if is_turn_based(self.major_mode):
+            if is_turn_based_play(self.play_mode):
                 self.apply_effects(self._handle_active_move(action))
             else:
                 self.apply_effects(self._handle_explore_move(action))
                 self._tick_world_clock(SECONDS_PER_TURN)
-            self.sync_major_mode()
+            self.sync_play_mode()
             return
         effects = self.dispatcher.dispatch(action, self.world)
         self.apply_effects(effects)
-        self.sync_major_mode()
+        self.sync_play_mode()
 
-    def sync_major_mode(self) -> None:
+    def sync_play_mode(self) -> None:
+        """Recompute PlayMode from world state.
+
+        Only the play state machine is affected; UIMode is independent
+        of hostile presence, so modal screens (inventory, dialogue,
+        etc.) do not change which PlayMode is active when dismissed.
+        """
+
         hostiles_present = bool(hostiles_requiring_battle(self.world, self.party))
         if hostiles_present:
             self.voluntary_turn_based = False
-        next_mode = major_mode_for_state(hostiles_present, self.voluntary_turn_based)
-        if next_mode == self.major_mode:
+        next_mode = play_mode_for_state(hostiles_present, self.voluntary_turn_based)
+        if next_mode is self.play_mode:
             return
-        self.major_mode = next_mode
+        self.play_mode = next_mode
         self.activation.reset_for_activation()
-        if not is_turn_based(next_mode):
+        if not is_turn_based_play(next_mode):
             self.active_party_index = 0
 
     def _toggle_turn_mode(self) -> list[Effect]:
@@ -151,7 +174,7 @@ class App:
         ]
 
     def _handle_interaction(self, action: InteractAttempt) -> list[Effect]:
-        if is_turn_based(self.major_mode):
+        if is_turn_based_play(self.play_mode):
             if self.activation.action_used:
                 return [EmitMessage("Action already used.")]
             effects = self.dispatcher.dispatch(action, self.world)
@@ -216,7 +239,7 @@ class App:
                 self.active_party_index = index
                 self.activation.reset_for_activation()
                 return
-        if self.major_mode == "battle":
+        if self.play_mode is PlayMode.turn_based:
             self.run_enemy_activations()
         self._tick_world_clock(SECONDS_PER_ROUND)
         for index, entity in enumerate(self.party):
@@ -251,8 +274,9 @@ class App:
         self.activation = ActivationState()
         self.facing = (1, 0)
         self.voluntary_turn_based = False
-        self.major_mode = "explore"
-        self.mode = StartChoiceMode()
+        self.play_mode = PlayMode.explore
+        self.ui_mode = UIMode.start
+        self.character_creation_state = None
         self.messages.emit("")
 
 
@@ -287,7 +311,7 @@ def create_app(
         party=party,
         active_party_index=0,
         dispatcher=dispatcher,
-        major_mode=major_mode_for_state(bool(hostiles_requiring_battle(built.world, party))),
+        play_mode=play_mode_for_state(bool(hostiles_requiring_battle(built.world, party))),
     )
 
 
@@ -457,12 +481,13 @@ def _run_curses(stdscr: curses.window) -> None:
             app.world,
             app.active_actor(),
             app.messages,
-            app.mode,
+            app.ui_mode,
             app.focus,
             app.party,
             app.activation.movement_used,
             app.activation.movement_total,
-            app.major_mode,
+            app.play_mode,
+            app.character_creation_state,
         )
         key = stdscr.getch()
         if key == curses.KEY_RESIZE:

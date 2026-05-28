@@ -3,13 +3,13 @@ import random
 from src.app import create_app
 from src.core.actions import InteractAttempt, MoveAttempt
 from src.core.components import BlocksMovement, Container, Door, Lock, Position, Trap
-from src.core.modes import NormalMode
+from src.core.modes import UIMode
 
 
 def _clear_hostiles(app) -> None:
     for entity in list(app.world.creatures.values):
         app.world.remove_entity(entity)
-    app.sync_major_mode()
+    app.sync_play_mode()
 
 
 def _add_feature(app, x: int, y: int):
@@ -22,7 +22,7 @@ def test_app_applies_locked_door_interaction_and_allows_movement_afterward() -> 
     app = create_app()
     app.handle_key(ord("y"))
     _clear_hostiles(app)
-    app.mode = NormalMode()
+    app.ui_mode = UIMode.play
     player_position = app.world.positions.require(app.player)
     start_x = player_position.x
     door = _add_feature(app, start_x + 1, player_position.y)
@@ -119,7 +119,7 @@ def test_handle_key_locked_door_via_public_path_resolves_through_skill_check() -
     app = create_app(rng=random.Random(0))
     app.handle_key(ord("y"))
     _clear_hostiles(app)
-    app.mode = NormalMode()
+    app.ui_mode = UIMode.play
     player_position = app.world.positions.require(app.player)
     door = _add_feature(app, player_position.x + 1, player_position.y)
     app.world.doors.add(door, Door())
@@ -147,7 +147,7 @@ def test_handle_key_locked_door_eventually_succeeds_across_seeds() -> None:
         app = create_app(rng=random.Random(seed))
         app.handle_key(ord("y"))
         _clear_hostiles(app)
-        app.mode = NormalMode()
+        app.ui_mode = UIMode.play
         player_position = app.world.positions.require(app.player)
         door = _add_feature(app, player_position.x + 1, player_position.y)
         app.world.doors.add(door, Door())
@@ -169,7 +169,7 @@ def test_handle_key_armed_trap_via_public_path_resolves_through_skill_check() ->
     app = create_app(rng=random.Random(0))
     app.handle_key(ord("y"))
     _clear_hostiles(app)
-    app.mode = NormalMode()
+    app.ui_mode = UIMode.play
     player_position = app.world.positions.require(app.player)
     trap = _add_feature(app, player_position.x + 1, player_position.y)
     app.world.traps.add(trap, Trap(disarm_dc=12, damage=3))
@@ -191,7 +191,7 @@ def test_handle_key_opens_unlocked_door_via_public_path() -> None:
     app = create_app()
     app.handle_key(ord("y"))
     _clear_hostiles(app)
-    app.mode = NormalMode()
+    app.ui_mode = UIMode.play
     player_position = app.world.positions.require(app.player)
     door = _add_feature(app, player_position.x + 1, player_position.y)
     app.world.doors.add(door, Door())
@@ -207,7 +207,7 @@ def test_handle_key_reports_nothing_to_interact_with_when_no_target() -> None:
     app = create_app()
     app.handle_key(ord("y"))
     _clear_hostiles(app)
-    app.mode = NormalMode()
+    app.ui_mode = UIMode.play
 
     app.handle_key(ord("e"))
 
@@ -224,7 +224,7 @@ def test_turn_based_interaction_spends_action_and_blocks_second_interaction() ->
     player_position = app.world.positions.require(app.player)
     container = _add_feature(app, player_position.x + 1, player_position.y)
     app.world.containers.add(container, Container())
-    app.sync_major_mode()
+    app.sync_play_mode()
 
     app.apply_effects(app._handle_interaction(InteractAttempt(app.player, 1, 0)))
 

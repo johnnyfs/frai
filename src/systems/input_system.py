@@ -14,16 +14,9 @@ from src.core.actions import (
     StartChoice,
     ToggleTurnMode,
 )
+from src.core.character_creation import CharacterCreationState
 from src.core.entity import EntityId
-from src.core.modes import (
-    CharacterCreationMode,
-    ConfirmQuitMode,
-    GameMode,
-    GameOverMode,
-    InventoryMode,
-    NormalMode,
-    StartChoiceMode,
-)
+from src.core.modes import UIMode
 
 MOVE_KEYS: dict[str, tuple[int, int]] = {
     "h": (-1, 0),
@@ -48,12 +41,23 @@ def _key_name(key: int) -> str | None:
     return None
 
 
-def map_key(key: int, mode: GameMode, player: EntityId) -> Action | None:
+def map_key(
+    key: int,
+    ui_mode: UIMode,
+    player: EntityId,
+    character_creation_state: CharacterCreationState | None = None,
+) -> Action | None:
+    """Translate a key press to an Action, dispatched by UIMode.
+
+    `character_creation_state` must be provided when `ui_mode` is
+    `UIMode.character_creation`; otherwise it is ignored.
+    """
+
     key_name = _key_name(key)
     if key_name == "resize":
         return None
 
-    if isinstance(mode, StartChoiceMode):
+    if ui_mode is UIMode.start:
         if key_name == "c":
             return StartChoice(create=True)
         if key_name == "y":
@@ -62,33 +66,36 @@ def map_key(key: int, mode: GameMode, player: EntityId) -> Action | None:
             return QuitRequest()
         return None
 
-    if isinstance(mode, GameOverMode):
+    if ui_mode is UIMode.game_over:
         if key_name == "r":
             return GameOverChoice(restart=True)
         if key_name == "q":
             return GameOverChoice(restart=False)
         return None
 
-    if isinstance(mode, InventoryMode):
+    if ui_mode is UIMode.inventory:
         if key_name in ("i", "q", "b"):
             return CloseInventory()
         return None
 
-    if isinstance(mode, CharacterCreationMode):
+    if ui_mode is UIMode.character_creation:
+        if character_creation_state is None:
+            return None
+        state = character_creation_state
         if key in (curses.KEY_BACKSPACE, 8, 127) or key_name == "b":
-            return CharacterCreationCommand("back", mode.state)
+            return CharacterCreationCommand("back", state)
         if key_name == "r":
-            return CharacterCreationCommand("reroll", mode.state)
+            return CharacterCreationCommand("reroll", state)
         if key_name == "y":
-            return CharacterCreationCommand("confirm", mode.state)
+            return CharacterCreationCommand("confirm", state)
         if key_name is not None and len(key_name) == 1 and key_name.isalpha():
-            return CharacterCreationCommand("choose", mode.state, key_name)
+            return CharacterCreationCommand("choose", state, key_name)
         return None
 
     if key_name is None:
         return None
 
-    if isinstance(mode, NormalMode):
+    if ui_mode is UIMode.play:
         if key_name == " ":
             return EndTurn()
         if key_name == "t":
@@ -102,11 +109,13 @@ def map_key(key: int, mode: GameMode, player: EntityId) -> Action | None:
             return MoveAttempt(actor=player, dx=dx, dy=dy)
         if key_name == "q":
             return QuitRequest()
+        return None
 
-    if isinstance(mode, ConfirmQuitMode):
+    if ui_mode is UIMode.quit_confirm:
         if key_name == "y":
             return QuitConfirm(True)
         if key_name == "n":
             return QuitConfirm(False)
+        return None
 
     return None

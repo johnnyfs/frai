@@ -12,7 +12,7 @@ from src.core.character_creation import (
 )
 from src.core.dispatcher import DispatchResult
 from src.core.effects import EmitMessage, SetCharacterSheet, SetMode
-from src.core.modes import CharacterCreationMode, NormalMode
+from src.core.modes import UIMode
 from src.core.world import World
 
 
@@ -31,7 +31,7 @@ class CharacterCreationSystem:
                 effects=[
                     SetCharacterSheet(player, sheet),
                     EmitMessage(f"Welcome, {sheet.race} {sheet.character_class}."),
-                    SetMode(NormalMode()),
+                    SetMode(UIMode.play),
                 ],
                 cancel=True,
             )
@@ -49,4 +49,12 @@ class CharacterCreationSystem:
         else:
             new_state = state
 
-        return DispatchResult(effects=[SetMode(CharacterCreationMode(new_state))], cancel=True)
+        return DispatchResult(
+            effects=[
+                SetMode(
+                    UIMode.character_creation,
+                    character_creation_state=new_state,
+                )
+            ],
+            cancel=True,
+        )

@@ -33,7 +33,7 @@ from src.core.effects import (
     TriggerTrap,
     UnlockEntity,
 )
-from src.core.modes import GameOverMode
+from src.core.modes import UIMode
 
 if TYPE_CHECKING:
     from src.app import App
@@ -47,7 +47,8 @@ class _AppHost(Protocol):
     """
 
     # Direct attributes the handlers mutate.
-    mode: object
+    ui_mode: UIMode
+    character_creation_state: object
     running: bool
     party: list
     active_party_index: int
@@ -154,9 +155,10 @@ def _apply_damage_entity(host: "App", effect: DamageEntity) -> None:
 
 
 def _apply_kill_entity(host: "App", effect: KillEntity) -> None:
-    """Reaches into App state: if the player dies we flip to GameOverMode."""
+    """Reaches into App state: if the player dies we flip to UIMode.game_over."""
     if effect.entity == host.player:
-        host.mode = GameOverMode()
+        host.ui_mode = UIMode.game_over
+        host.character_creation_state = None
     else:
         host.world.remove_entity(effect.entity)
 
@@ -240,5 +242,14 @@ def _apply_quit_game(host: "App", effect: QuitGame) -> None:
 
 
 def _apply_set_mode(host: "App", effect: SetMode) -> None:
-    """Reaches into App state: swaps the active mode."""
-    host.mode = effect.mode
+    """Reaches into App state: swaps the active UI mode.
+
+    When switching to `UIMode.character_creation` the effect carries the
+    creation state to install; for every other UIMode the field is
+    cleared so stale state cannot leak across screen transitions.
+    """
+    host.ui_mode = effect.mode
+    if effect.mode is UIMode.character_creation:
+        host.character_creation_state = effect.character_creation_state
+    else:
+        host.character_creation_state = None

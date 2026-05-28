@@ -8,14 +8,7 @@ from src.core.items import (
     item_count,
     weapon_item_id_for_name,
 )
-from src.core.modes import (
-    CharacterCreationMode,
-    ConfirmQuitMode,
-    GameOverMode,
-    InventoryMode,
-    NormalMode,
-    StartChoiceMode,
-)
+from src.core.modes import PlayMode, UIMode
 from src.core.world import World
 from src.map.tiles import RUBBLE
 
@@ -44,24 +37,24 @@ def _assert_starter_inventory_and_equipment(world: World, entity: EntityId) -> N
 
 def test_quit_prompt_and_cancel_flow_uses_effects() -> None:
     app = create_app()
-    app.mode = NormalMode()
+    app.ui_mode = UIMode.play
 
     app.handle_key(ord("q"))
 
-    assert isinstance(app.mode, ConfirmQuitMode)
+    assert app.ui_mode is UIMode.quit_confirm
     assert app.messages.current == "Quit? y/n"
     assert app.running is True
 
     app.handle_key(ord("n"))
 
-    assert isinstance(app.mode, NormalMode)
+    assert app.ui_mode is UIMode.play
     assert app.messages.current == ""
     assert app.running is True
 
 
 def test_quit_confirmation_stops_app() -> None:
     app = create_app()
-    app.mode = NormalMode()
+    app.ui_mode = UIMode.play
 
     app.handle_key(ord("q"))
     app.handle_key(ord("y"))
@@ -72,7 +65,7 @@ def test_quit_confirmation_stops_app() -> None:
 def test_app_starts_in_start_choice() -> None:
     app = create_app()
 
-    assert isinstance(app.mode, StartChoiceMode)
+    assert app.ui_mode is UIMode.start
 
 
 def test_create_choice_enters_character_creation() -> None:
@@ -80,7 +73,7 @@ def test_create_choice_enters_character_creation() -> None:
 
     app.handle_key(ord("c"))
 
-    assert isinstance(app.mode, CharacterCreationMode)
+    assert app.ui_mode is UIMode.character_creation
 
 
 def test_start_choice_can_request_quit_confirmation() -> None:
@@ -88,7 +81,7 @@ def test_start_choice_can_request_quit_confirmation() -> None:
 
     app.handle_key(ord("q"))
 
-    assert isinstance(app.mode, ConfirmQuitMode)
+    assert app.ui_mode is UIMode.quit_confirm
     assert app.messages.current == "Quit? y/n"
 
 
@@ -105,7 +98,7 @@ def test_character_creation_flow_assigns_sheet_and_starts_game() -> None:
     app.handle_key(ord("y"))  # keep attributes
     app.handle_key(ord("y"))  # confirm
 
-    assert isinstance(app.mode, NormalMode)
+    assert app.ui_mode is UIMode.play
     assert app.world.characters.has(app.player)
     assert app.messages.current.startswith("Welcome,")
 
@@ -115,7 +108,7 @@ def test_yolo_choice_assigns_sheet_and_starts_game() -> None:
 
     app.handle_key(ord("y"))
 
-    assert isinstance(app.mode, NormalMode)
+    assert app.ui_mode is UIMode.play
     assert app.world.characters.has(app.player)
     assert app.world.combat_stats.has(app.player)
     assert app.world.weapons.has(app.player)
@@ -241,7 +234,7 @@ def test_inventory_mode_does_not_reset_action_economy() -> None:
     for entity in list(app.world.creatures.values):
         if entity != frog:
             app.world.remove_entity(entity)
-    app.sync_major_mode()
+    app.sync_play_mode()
     app.activation.extra_actions_total = 1
     app.activation.spend_action()
     app.activation.spend_bonus_action()
@@ -363,7 +356,7 @@ def test_explore_mode_moves_freely_and_party_follows() -> None:
 
     app.handle_key(ord("h"))
 
-    assert app.major_mode == "explore"
+    assert app.play_mode is PlayMode.explore
     assert app.world.positions.require(player).x == 159
     assert app.world.positions.require(companion).x == 160
     assert app.activation.movement_used == 0
@@ -384,7 +377,7 @@ def test_explore_mode_rubble_movement_is_intentionally_free() -> None:
 
     app.handle_key(ord("h"))
 
-    assert app.major_mode == "explore"
+    assert app.play_mode is PlayMode.explore
     assert app.world.positions.require(player).x == 159
     assert app.activation.movement_used == 0
 
@@ -413,11 +406,11 @@ def test_player_can_enter_and_exit_voluntary_turn_mode_without_hostiles() -> Non
     player, companion = app.party[:2]
     for entity in list(app.world.creatures.values):
         app.world.remove_entity(entity)
-    app.sync_major_mode()
+    app.sync_play_mode()
 
     app.handle_key(ord("t"))
 
-    assert app.major_mode == "turn"
+    assert app.play_mode is PlayMode.voluntary_turn
     assert app.voluntary_turn_based is True
     assert app.active_actor() == player
     assert app.messages.current == "Entered turn-based mode."
@@ -428,7 +421,7 @@ def test_player_can_enter_and_exit_voluntary_turn_mode_without_hostiles() -> Non
 
     app.handle_key(ord("t"))
 
-    assert app.major_mode == "explore"
+    assert app.play_mode is PlayMode.explore
     assert app.voluntary_turn_based is False
     assert app.active_actor() == player
     assert app.messages.current == "Exited turn-based mode."
@@ -444,12 +437,12 @@ def test_voluntary_turn_mode_uses_battle_movement_budget_without_enemies() -> No
     app.world.positions.require(player).y = 40
     app.world.positions.require(companion).x = 170
     app.world.positions.require(companion).y = 40
-    app.sync_major_mode()
+    app.sync_play_mode()
 
     app.handle_key(ord("t"))
     app.handle_key(ord("h"))
 
-    assert app.major_mode == "turn"
+    assert app.play_mode is PlayMode.voluntary_turn
     assert app.world.positions.require(player).x == 159
     assert app.activation.movement_used == 3
 
@@ -461,18 +454,18 @@ def test_enemy_presence_forces_battle_and_exit_waits_until_hostiles_are_gone() -
     for entity in list(app.world.creatures.values):
         if entity != frog:
             app.world.remove_entity(entity)
-    app.sync_major_mode()
+    app.sync_play_mode()
 
     app.handle_key(ord("t"))
 
-    assert app.major_mode == "battle"
+    assert app.play_mode is PlayMode.turn_based
     assert app.voluntary_turn_based is False
     assert app.messages.current == "Cannot exit turn-based mode while hostiles are present."
 
     app.apply_effects([KillEntity(frog)])
-    app.sync_major_mode()
+    app.sync_play_mode()
 
-    assert app.major_mode == "explore"
+    assert app.play_mode is PlayMode.explore
 
 
 def test_hostile_interrupting_voluntary_turn_mode_returns_to_explore_after_combat() -> None:
@@ -483,11 +476,11 @@ def test_hostile_interrupting_voluntary_turn_mode_returns_to_explore_after_comba
         if entity != frog:
             app.world.remove_entity(entity)
     app.apply_effects([KillEntity(frog)])
-    app.sync_major_mode()
+    app.sync_play_mode()
 
     app.handle_key(ord("t"))
 
-    assert app.major_mode == "turn"
+    assert app.play_mode is PlayMode.voluntary_turn
     assert app.voluntary_turn_based is True
 
     hostile = app.world.create_entity()
@@ -506,15 +499,15 @@ def test_hostile_interrupting_voluntary_turn_mode_returns_to_explore_after_comba
             constitution=10,
         ),
     )
-    app.sync_major_mode()
+    app.sync_play_mode()
 
-    assert app.major_mode == "battle"
+    assert app.play_mode is PlayMode.turn_based
     assert app.voluntary_turn_based is False
 
     app.apply_effects([KillEntity(hostile)])
-    app.sync_major_mode()
+    app.sync_play_mode()
 
-    assert app.major_mode == "explore"
+    assert app.play_mode is PlayMode.explore
 
 
 def test_voluntary_turn_party_round_does_not_run_enemy_activations() -> None:
@@ -522,7 +515,7 @@ def test_voluntary_turn_party_round_does_not_run_enemy_activations() -> None:
     app.handle_key(ord("y"))
     for entity in list(app.world.creatures.values):
         app.world.remove_entity(entity)
-    app.sync_major_mode()
+    app.sync_play_mode()
     app.handle_key(ord("t"))
     app.active_party_index = len(app.party) - 1
     enemy_activations = 0
@@ -539,7 +532,7 @@ def test_voluntary_turn_party_round_does_not_run_enemy_activations() -> None:
     finally:
         type(app).run_enemy_activations = original
 
-    assert app.major_mode == "turn"
+    assert app.play_mode is PlayMode.voluntary_turn
     assert app.active_actor() == app.player
     assert app.messages.current == "Entered turn-based mode."
     assert enemy_activations == 0
@@ -552,14 +545,14 @@ def test_killing_last_hostile_switches_to_explore_mode() -> None:
     for entity in list(app.world.creatures.values):
         if entity != frog:
             app.world.remove_entity(entity)
-    app.sync_major_mode()
+    app.sync_play_mode()
 
-    assert app.major_mode == "battle"
+    assert app.play_mode is PlayMode.turn_based
 
     app.apply_effects([KillEntity(frog)])
-    app.sync_major_mode()
+    app.sync_play_mode()
 
-    assert app.major_mode == "explore"
+    assert app.play_mode is PlayMode.explore
     assert app.active_actor() == app.player
 
 
@@ -759,7 +752,7 @@ def test_enemy_movement_spending_uses_terrain_adjusted_cost() -> None:
     assert app.world.positions.require(frog).x == 154
 
 
-def test_sync_major_mode_resets_activation_on_mode_transition() -> None:
+def test_sync_play_mode_resets_activation_on_mode_transition() -> None:
     app = create_app()
     app.handle_key(ord("y"))
     app.activation.movement_used = 12
@@ -767,9 +760,9 @@ def test_sync_major_mode_resets_activation_on_mode_transition() -> None:
 
     for entity in list(app.world.creatures.values):
         app.world.remove_entity(entity)
-    app.sync_major_mode()
+    app.sync_play_mode()
 
-    assert app.major_mode == "explore"
+    assert app.play_mode is PlayMode.explore
     assert app.activation.movement_used == 0
     assert app.activation.action_used is False
 
@@ -829,11 +822,11 @@ def test_inventory_command_opens_and_closes_inventory() -> None:
 
     app.handle_key(ord("i"))
 
-    assert isinstance(app.mode, InventoryMode)
+    assert app.ui_mode is UIMode.inventory
 
     app.handle_key(ord("q"))
 
-    assert isinstance(app.mode, NormalMode)
+    assert app.ui_mode is UIMode.play
 
 
 def test_long_messages_require_key_to_continue_before_actions() -> None:
@@ -843,7 +836,7 @@ def test_long_messages_require_key_to_continue_before_actions() -> None:
     app.handle_key(ord("y"))
 
     assert app.messages.current
-    assert isinstance(app.mode, StartChoiceMode)
+    assert app.ui_mode is UIMode.start
 
 
 def test_player_death_can_restart_to_opening_choice() -> None:
@@ -852,12 +845,12 @@ def test_player_death_can_restart_to_opening_choice() -> None:
 
     app.apply_effects([KillEntity(app.player)])
 
-    assert isinstance(app.mode, GameOverMode)
+    assert app.ui_mode is UIMode.game_over
     assert app.running is True
 
     app.handle_key(ord("r"))
 
-    assert isinstance(app.mode, StartChoiceMode)
+    assert app.ui_mode is UIMode.start
     assert app.player != old_player or app.world.player_entity() == app.player
 
 
@@ -868,4 +861,4 @@ def test_game_over_restart_is_not_blocked_by_pending_messages() -> None:
 
     app.handle_key(ord("r"))
 
-    assert isinstance(app.mode, StartChoiceMode)
+    assert app.ui_mode is UIMode.start

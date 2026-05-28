@@ -14,10 +14,11 @@ from src.core.character_creation import (
     step_title,
     total_attributes,
 )
+from src.core.character_creation import CharacterCreationState
 from src.core.config import MIN_TERMINAL_HEIGHT, MIN_TERMINAL_WIDTH, PLAYFIELD_WIDTH
 from src.core.entity import EntityId
 from src.core.items import require_item
-from src.core.modes import CharacterCreationMode, GameMode, GameOverMode, InventoryMode, StartChoiceMode
+from src.core.modes import PlayMode, UIMode
 from src.core.world import World
 from src.systems.message_system import MORE_PROMPT, MessageState
 from src.ui.layout import Layout
@@ -68,12 +69,13 @@ def render(
     world: World,
     observer: EntityId,
     messages: MessageState,
-    mode: GameMode,
+    ui_mode: UIMode,
     focus: EntityId | None = None,
     party: Sequence[EntityId] = (),
     movement_used: float = 0.0,
     movement_total: float = 30.0,
-    major_mode: str = "explore",
+    play_mode: PlayMode = PlayMode.explore,
+    character_creation_state: CharacterCreationState | None = None,
 ) -> None:
     screen.clear()
     layout = Layout(width=screen.width, height=screen.height)
@@ -83,19 +85,22 @@ def render(
         screen.refresh()
         return
 
-    if isinstance(mode, StartChoiceMode):
+    if ui_mode is UIMode.start:
         _render_start_choice(screen, layout)
         return
 
-    if isinstance(mode, GameOverMode):
+    if ui_mode is UIMode.game_over:
         _render_game_over(screen, layout)
         return
 
-    if isinstance(mode, CharacterCreationMode):
-        _render_character_creation(screen, layout, mode)
+    if ui_mode is UIMode.character_creation:
+        if character_creation_state is None:
+            screen.refresh()
+            return
+        _render_character_creation(screen, layout, character_creation_state)
         return
 
-    if isinstance(mode, InventoryMode):
+    if ui_mode is UIMode.inventory:
         _render_inventory(screen, layout, world, observer)
         return
 
@@ -121,7 +126,7 @@ def render(
 
     screen.print_line(
         layout.status_y,
-        _status_line(world, observer, party, movement_used, movement_total, major_mode).ljust(
+        _status_line(world, observer, party, movement_used, movement_total, play_mode).ljust(
             layout.playfield_width
         ),
         layout.origin_x,
@@ -219,13 +224,13 @@ def _status_line(
     party: Sequence[EntityId] = (),
     movement_used: float = 0.0,
     movement_total: float = 30.0,
-    major_mode: str = "explore",
+    play_mode: PlayMode = PlayMode.explore,
 ) -> str:
-    mode_label = "Turn" if major_mode == "turn" else major_mode.capitalize()
+    mode_label = _play_mode_label(play_mode)
     label = _status_label(world, observer, party)
     movement = (
         f"  Move {_format_feet(movement_used)}/{_format_feet(movement_total)}"
-        if major_mode in ("battle", "turn")
+        if play_mode in (PlayMode.turn_based, PlayMode.voluntary_turn)
         else ""
     )
     stats = world.combat_stats.get(observer)
@@ -235,6 +240,14 @@ def _status_line(
         f"{mode_label}  {label}  HP {stats.hit_points}/{stats.max_hit_points}  "
         f"AC {stats.armor_class}{movement}"
     )
+
+
+def _play_mode_label(play_mode: PlayMode) -> str:
+    if play_mode is PlayMode.explore:
+        return "Explore"
+    if play_mode is PlayMode.turn_based:
+        return "Battle"
+    return "Turn"
 
 
 def _status_label(world: World, observer: EntityId, party: Sequence[EntityId]) -> str:
@@ -319,9 +332,8 @@ def _render_game_over(screen: Screen, layout: Layout) -> None:
 def _render_character_creation(
     screen: Screen,
     layout: Layout,
-    mode: CharacterCreationMode,
+    state: CharacterCreationState,
 ) -> None:
-    state = mode.state
     choices = choices_for_step(state)
     selected = set(selected_for_step(state))
     character_class = class_by_name(state.character_class)
