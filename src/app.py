@@ -21,13 +21,18 @@ from src.core.effects import (
     EmitMessage,
     KillEntity,
     MoveEntity,
+    OpenEntity,
+    RemoveBlocker,
     QuitGame,
     RestartGame,
     SetCharacterSheet,
     SetMode,
+    DisarmTrap,
+    TriggerTrap,
+    UnlockEntity,
 )
 from src.core.entity import EntityId
-from src.core.actions import EndTurn, MoveAttempt, ToggleTurnMode
+from src.core.actions import EndTurn, InteractAttempt, MoveAttempt, ToggleTurnMode
 from src.core.modes import GameMode, GameOverMode, NormalMode, StartChoiceMode
 from src.core.party import CompanionDefinition, companion_definitions_for_player_class
 from src.core.turns import (
@@ -44,6 +49,7 @@ from src.systems.inventory_system import InventorySystem
 from src.systems.character_creation_system import CharacterCreationSystem
 from src.systems.ai_system import EnemyAISystem
 from src.systems.combat_system import CombatSystem
+from src.systems.interaction_system import InteractionSystem
 from src.systems.message_system import MessageState
 from src.systems.movement_system import (
     MovementContextResolver,
@@ -68,6 +74,7 @@ class App:
     messages: MessageState = field(default_factory=MessageState)
     mode: GameMode = field(default_factory=StartChoiceMode)
     major_mode: MajorMode = "explore"
+    facing: tuple[int, int] = (1, 0)
     voluntary_turn_based: bool = False
     running: bool = True
 
@@ -114,6 +121,25 @@ class App:
                     self.world.remove_entity(effect.entity)
             elif isinstance(effect, RestartGame):
                 self.restart()
+            elif isinstance(effect, OpenEntity):
+                if self.world.doors.has(effect.entity):
+                    self.world.doors.require(effect.entity).is_open = True
+                if self.world.containers.has(effect.entity):
+                    self.world.containers.require(effect.entity).is_open = True
+            elif isinstance(effect, UnlockEntity):
+                lock = self.world.locks.get(effect.entity)
+                if lock is not None:
+                    lock.is_locked = False
+            elif isinstance(effect, DisarmTrap):
+                trap = self.world.traps.get(effect.entity)
+                if trap is not None:
+                    trap.is_armed = False
+            elif isinstance(effect, TriggerTrap):
+                trap = self.world.traps.get(effect.entity)
+                if trap is not None and not trap.reusable:
+                    trap.is_armed = False
+            elif isinstance(effect, RemoveBlocker):
+                self.world.blockers.values.pop(effect.entity, None)
         if messages:
             self.messages.emit(" ".join(message for message in messages if message))
 
@@ -131,7 +157,15 @@ class App:
             self.apply_effects(self._toggle_turn_mode())
             self.sync_major_mode()
             return
+        if isinstance(action, InteractAttempt) and isinstance(self.mode, NormalMode):
+            if action.dx == 0 and action.dy == 0:
+                action = InteractAttempt(action.actor, self.facing[0], self.facing[1], action.check_result)
+            self.apply_effects(self._handle_interaction(action))
+            self.sync_major_mode()
+            return
         if isinstance(action, MoveAttempt) and isinstance(self.mode, NormalMode):
+            if action.dx != 0 or action.dy != 0:
+                self.facing = (action.dx, action.dy)
             if is_turn_based(self.major_mode):
                 self.apply_effects(self._handle_active_move(action))
             else:
@@ -166,6 +200,15 @@ class App:
                 else "Exited turn-based mode."
             )
         ]
+
+    def _handle_interaction(self, action: InteractAttempt) -> list[Effect]:
+        if is_turn_based(self.major_mode):
+            if self.activation.action_used:
+                return [EmitMessage("Action already used.")]
+            effects = self.dispatcher.dispatch(action, self.world)
+            self.activation.spend_action()
+            return effects
+        return self.dispatcher.dispatch(action, self.world)
 
     def _handle_explore_move(self, action: MoveAttempt) -> list[Effect]:
         displacement = _party_displacement(self.world, self.party, action)
@@ -250,6 +293,7 @@ class App:
         self.party = party
         self.active_party_index = 0
         self.activation = ActivationState()
+        self.facing = (1, 0)
         self.voluntary_turn_based = False
         self.major_mode = "explore"
         self.mode = StartChoiceMode()
@@ -270,6 +314,7 @@ def create_app(width: int = WORLD_WIDTH, height: int = WORLD_HEIGHT) -> App:
             InventorySystem(),
             CharacterCreationSystem(),
             QuitSystem(),
+            InteractionSystem(),
             movement,
             combat,
         ]

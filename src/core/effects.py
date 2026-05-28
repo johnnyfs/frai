@@ -50,6 +50,31 @@ class RestartGame:
     pass
 
 
+@dataclass(frozen=True, slots=True)
+class OpenEntity:
+    entity: EntityId
+
+
+@dataclass(frozen=True, slots=True)
+class UnlockEntity:
+    entity: EntityId
+
+
+@dataclass(frozen=True, slots=True)
+class DisarmTrap:
+    entity: EntityId
+
+
+@dataclass(frozen=True, slots=True)
+class TriggerTrap:
+    entity: EntityId
+
+
+@dataclass(frozen=True, slots=True)
+class RemoveBlocker:
+    entity: EntityId
+
+
 Effect: TypeAlias = (
     MoveEntity
     | EmitMessage
@@ -59,4 +84,9 @@ Effect: TypeAlias = (
     | DamageEntity
     | KillEntity
     | RestartGame
+    | OpenEntity
+    | UnlockEntity
+    | DisarmTrap
+    | TriggerTrap
+    | RemoveBlocker
 )

@@ -85,3 +85,27 @@ class Armor:
 @dataclass(slots=True)
 class Faction:
     value: str
+
+
+@dataclass(slots=True)
+class Door:
+    is_open: bool = False
+
+
+@dataclass(slots=True)
+class Lock:
+    is_locked: bool = True
+    pick_dc: int = 10
+
+
+@dataclass(slots=True)
+class Trap:
+    is_armed: bool = True
+    disarm_dc: int = 10
+    damage: int = 1
+    reusable: bool = False
+
+
+@dataclass(slots=True)
+class Container:
+    is_open: bool = False
