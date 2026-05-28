@@ -47,6 +47,7 @@ from src.core.autowalk import (
 from src.core.modes import PlayMode, UIMode, is_turn_based_play, play_mode_for_state
 from src.core.party import CompanionDefinition, companion_definitions_for_player_class
 from src.core.party_state import PartyState
+from src.core.targeting import TargetingState
 from src.core.time import SECONDS_PER_ROUND, SECONDS_PER_TURN, advance as advance_world_clock
 from src.core.turn_controller import TurnController
 from src.core.turns import ActivationState
@@ -54,7 +55,7 @@ from src.core.vision import PartyMemory
 from src.core.world import World
 from src.map.room_builder import BuiltRoom, build_room_world
 from src.systems.game_over_system import GameOverSystem
-from src.systems.input_system import map_key
+from src.systems.input_system import MOVE_KEYS, map_key
 from src.systems.inventory_system import InventorySystem
 from src.systems.character_creation_system import CharacterCreationSystem
 from src.systems.ai_system import EnemyAISystem
@@ -106,6 +107,13 @@ class App:
     # ``step_autowalk`` predicate fires. This is transient state and is
     # never persisted — save/load drops any in-progress walk.
     autowalk: AutowalkRequest | None = None
+    # M20 transient targeting modal. When non-None and ``ui_mode`` is
+    # :class:`UIMode.targeting`, the App handles cursor movement and
+    # confirm/cancel keys instead of routing them through ``map_key``.
+    # This field is intentionally absent from :class:`GameState` (M16
+    # save shape) — targeting is a per-input modal and a save written
+    # mid-modal drops the in-flight selection.
+    targeting: TargetingState | None = None
     loot_rng: random.Random = field(default_factory=random.Random)
     effect_applier: EffectApplier = field(init=False)
 
@@ -297,6 +305,13 @@ class App:
         if self.messages.awaiting_more and self.ui_mode is not UIMode.game_over:
             self.messages.advance()
             return
+        # M20 targeting modal owns all input while ``ui_mode == targeting``.
+        # Cursor movement, confirm, and cancel are handled here so the
+        # normal action dispatch path never advances the world while a
+        # cursor selection is pending.
+        if self.ui_mode is UIMode.targeting and self.targeting is not None:
+            self._handle_targeting_key(key)
+            return
         self.sync_play_mode()
         # Autowalk (M22): a capital direction key initiates a repeated
         # move in that direction. The detection happens before
@@ -379,6 +394,110 @@ class App:
     # ------------------------------------------------------------------
     # Turn-mode and action handlers
     # ------------------------------------------------------------------
+
+    # ------------------------------------------------------------------
+    # Targeting (M20)
+    # ------------------------------------------------------------------
+
+    def begin_targeting(self, state: TargetingState) -> None:
+        """Push ``state`` and switch the screen to :class:`UIMode.targeting`.
+
+        Records the prior :class:`UIMode` on the state (only if not
+        already set by the caller) so a subsequent ``cancel_targeting``
+        knows where to return. Entering the modal does NOT advance the
+        turn or consume any action resource — confirm/cancel is the
+        only path that produces (or doesn't produce) an action.
+
+        The ``label`` on the state is emitted into the message log so
+        the player sees a hint like "Target a tile (range 6)."
+        """
+
+        if state.previous_mode is None:
+            state.previous_mode = self.ui_mode
+        self.targeting = state
+        self.ui_mode = UIMode.targeting
+        if state.label:
+            self.messages.emit(state.label)
+
+    def cancel_targeting(self) -> None:
+        """Exit targeting without dispatching an action.
+
+        Restores the prior :class:`UIMode` (defaulting to :class:`UIMode.play`
+        if none was recorded — which is the normal entry path), drops
+        the in-flight state, and emits a short cancellation message.
+        Importantly: no resource is consumed, no turn is advanced.
+        """
+
+        state = self.targeting
+        previous = state.previous_mode if state is not None else None
+        self.targeting = None
+        self.ui_mode = previous if previous is not None else UIMode.play
+        self.messages.emit("Targeting cancelled.")
+
+    def _handle_targeting_key(self, key: int) -> None:
+        """Cursor / confirm / cancel input while ``UIMode.targeting``.
+
+        Movement keys (h/j/k/l + diagonals) move the cursor. Enter/Space
+        confirms; Esc/q cancels. Anything else is ignored — we
+        deliberately do not fall through to ``map_key`` so the player
+        can't, say, open the inventory mid-target.
+        """
+
+        state = self.targeting
+        if state is None:
+            # Defensive: targeting mode without state is a bug. Restore
+            # play so the user isn't stuck.
+            self.ui_mode = UIMode.play
+            return
+
+        # Direction keys: lowercase rogue-style cardinals + diagonals.
+        try:
+            key_char = chr(key).lower() if 0 <= key <= 255 else ""
+        except ValueError:
+            key_char = ""
+
+        if key_char in MOVE_KEYS:
+            dx, dy = MOVE_KEYS[key_char]
+            state.move_cursor(dx, dy)
+            return
+
+        # Confirm: Enter or Space.
+        if key in (curses.KEY_ENTER, 10, 13) or key_char == " ":
+            action, refusal = state.confirm(self.world)
+            if action is not None:
+                self._dispatch_targeted_action(action)
+                return
+            if refusal is not None:
+                self.messages.emit(refusal)
+                return
+            # ``(None, None)`` — predicate passed but the builder chose
+            # not to dispatch. Treat as a silent cancel.
+            self.cancel_targeting()
+            return
+
+        # Cancel: Esc or q.
+        if key == 27 or key_char == "q":
+            self.cancel_targeting()
+            return
+
+    def _dispatch_targeted_action(self, action: Action) -> None:
+        """Exit targeting cleanly and dispatch ``action`` through the resolver.
+
+        The modal closes before dispatch so the action's effects (and
+        any messages it emits) land in the play screen rather than over
+        the targeting prompt. Resource consumption (action, movement,
+        etc.) is the responsibility of the dispatched action — confirm
+        itself does not charge anything.
+        """
+
+        previous_mode = (
+            self.targeting.previous_mode if self.targeting is not None else None
+        )
+        self.targeting = None
+        self.ui_mode = previous_mode if previous_mode is not None else UIMode.play
+        effects = self.resolve_action(action)
+        self.apply_effects(effects)
+        self.sync_play_mode()
 
     def sync_play_mode(self) -> None:
         """Recompute PlayMode from world state.
@@ -934,6 +1053,7 @@ def _run_curses(stdscr: curses.window) -> None:
     _setup_curses(stdscr)
     app = create_app()
     while app.running:
+        targeting = app.targeting
         render(
             Screen(stdscr),
             app.world,
@@ -947,6 +1067,9 @@ def _run_curses(stdscr: curses.window) -> None:
             app.play_mode,
             app.character_creation_state,
             memory=app.memory,
+            targeting_cursor=targeting.cursor if targeting is not None else None,
+            targeting_origin=targeting.origin if targeting is not None else None,
+            targeting_range=targeting.range if targeting is not None else 0,
         )
         key = stdscr.getch()
         if key == curses.KEY_RESIZE:

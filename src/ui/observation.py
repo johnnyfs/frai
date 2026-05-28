@@ -563,6 +563,15 @@ def _available_actions(
         return ["game_over.restart", "game_over.quit"]
     if ui_mode is UIMode.message_pager:
         return ["message.advance"]
+    if ui_mode is UIMode.targeting:
+        # M20: only cursor motion + confirm/cancel are legal while
+        # targeting. World-changing actions are explicitly NOT in this
+        # list so an agentic playtester knows it has to commit first.
+        return [
+            "targeting.move_cursor",
+            "targeting.confirm",
+            "targeting.cancel",
+        ]
     if ui_mode is not UIMode.play or active is None:
         return []
 
@@ -631,8 +640,22 @@ def _modal_snapshot(app: Any) -> ModalSnapshot | None:
         return ModalSnapshot(kind="game_over", options=["restart", "quit"])
     if ui_mode is UIMode.message_pager:
         return ModalSnapshot(kind="message_pager", options=["advance"])
-    # Future modal kinds (dialogue, shop, targeting, examine, help) just
-    # report the kind; option content will be filled in as those land.
+    if ui_mode is UIMode.targeting:
+        # M20: surface the cursor position + range so an agentic
+        # playtester can plan its next confirm. ``options`` lists the
+        # input verbs the modal accepts; cursor is the world-space
+        # ``x*100+y`` index isn't useful here, so we leave ``cursor``
+        # unset and put the live position into a "target" option token
+        # the harness can parse out.
+        targeting = getattr(app, "targeting", None)
+        options = ["move_cursor", "confirm", "cancel"]
+        if targeting is not None:
+            options.append(f"cursor={targeting.cursor[0]},{targeting.cursor[1]}")
+            options.append(f"origin={targeting.origin[0]},{targeting.origin[1]}")
+            options.append(f"range={targeting.range}")
+        return ModalSnapshot(kind="targeting", options=options)
+    # Future modal kinds (dialogue, shop, examine, help) just report
+    # the kind; option content will be filled in as those land.
     return ModalSnapshot(kind=ui_mode.value, options=[])
 
 
