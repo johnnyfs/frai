@@ -134,10 +134,10 @@ class App:
         self.sync_major_mode()
 
     def sync_major_mode(self) -> None:
-        next_mode = major_mode_for_state(
-            _hostiles_in_sight(self.world, self.party),
-            self.voluntary_turn_based,
-        )
+        hostiles_present = _hostiles_in_sight(self.world, self.party)
+        if hostiles_present:
+            self.voluntary_turn_based = False
+        next_mode = major_mode_for_state(hostiles_present, self.voluntary_turn_based)
         if next_mode == self.major_mode:
             return
         self.major_mode = next_mode
@@ -215,7 +215,8 @@ class App:
                 self.active_party_index = index
                 self.activation = ActivationState()
                 return
-        self.run_enemy_activations()
+        if self.major_mode == "battle":
+            self.run_enemy_activations()
         for index, entity in enumerate(self.party):
             if _can_take_turn(self.world, entity):
                 self.active_party_index = index

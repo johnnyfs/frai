@@ -1,4 +1,5 @@
 from src.app import create_app
+from src.core.components import CombatStats, Faction, Name, Position
 from src.core.config import PLAYFIELD_WIDTH
 from src.core.effects import KillEntity
 from src.core.modes import CharacterCreationMode, ConfirmQuitMode, GameOverMode, InventoryMode, NormalMode, StartChoiceMode
@@ -283,6 +284,64 @@ def test_enemy_presence_forces_battle_and_exit_waits_until_hostiles_are_gone() -
     app.sync_major_mode()
 
     assert app.major_mode == "explore"
+
+
+def test_hostile_interrupting_voluntary_turn_mode_returns_to_explore_after_combat() -> None:
+    app = create_app()
+    app.handle_key(ord("y"))
+    frog = next(iter(app.world.creatures.values))
+    for entity in list(app.world.creatures.values):
+        if entity != frog:
+            app.world.remove_entity(entity)
+    app.apply_effects([KillEntity(frog)])
+    app.sync_major_mode()
+
+    app.handle_key(ord("t"))
+
+    assert app.major_mode == "turn"
+    assert app.voluntary_turn_based is True
+
+    hostile = app.world.create_entity()
+    player_position = app.world.positions.require(app.player)
+    app.world.positions.add(hostile, Position(player_position.x + 2, player_position.y))
+    app.world.names.add(hostile, Name("ambusher"))
+    app.world.factions.add(hostile, Faction("enemy"))
+    app.world.combat_stats.add(
+        hostile,
+        CombatStats(
+            armor_class=10,
+            hit_points=1,
+            max_hit_points=1,
+            strength=10,
+            dexterity=10,
+            constitution=10,
+        ),
+    )
+    app.sync_major_mode()
+
+    assert app.major_mode == "battle"
+    assert app.voluntary_turn_based is False
+
+    app.apply_effects([KillEntity(hostile)])
+    app.sync_major_mode()
+
+    assert app.major_mode == "explore"
+
+
+def test_voluntary_turn_party_round_does_not_run_enemy_activations() -> None:
+    app = create_app()
+    app.handle_key(ord("y"))
+    for entity in list(app.world.creatures.values):
+        app.world.remove_entity(entity)
+    app.sync_major_mode()
+    app.handle_key(ord("t"))
+    app.active_party_index = len(app.party) - 1
+
+    app.handle_key(ord(" "))
+
+    assert app.major_mode == "turn"
+    assert app.active_actor() == app.player
+    assert app.messages.current == "Entered turn-based mode."
 
 
 def test_killing_last_hostile_switches_to_explore_mode() -> None:
