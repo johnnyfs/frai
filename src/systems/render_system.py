@@ -251,10 +251,34 @@ def _projected_presentation(
     return Glyph(" ")
 
 
+def party_glyph_for_index(index: int) -> str:
+    """Return the canonical map glyph for the party member at ``index``.
+
+    Index 0 (the leader / active party head) renders as ``@``. Indices
+    1..9 render as the matching digit so a human looking at the map can
+    tell companions apart at a glance -- "the wizard is 2, the cleric
+    is 3" -- without consulting the status line. Any index beyond 9
+    falls back to ``#`` so an oversized party still renders cleanly
+    instead of crashing or overflowing into multi-character glyphs.
+
+    The renderer (:func:`_party_glyph` below) is the runtime authority
+    because it sees ``party`` ordering live; ``src.app`` also uses this
+    helper when it seeds the ``Presentation`` component on companions
+    so the M16 save-state and M37 observation glyph fields agree with
+    what the player sees on screen.
+    """
+
+    if index <= 0:
+        return "@"
+    if index <= 9:
+        return str(index)
+    return "#"
+
+
 def _party_glyph(entity: EntityId, party: Sequence[EntityId]) -> str | None:
     for index, party_entity in enumerate(party):
         if entity == party_entity:
-            return "@" if index == 0 else "#"
+            return party_glyph_for_index(index)
     return None
 
 

@@ -120,12 +120,39 @@ def test_focus_screen_position_tracks_focused_entity_in_viewport() -> None:
 def test_party_glyphs_follow_roster_order() -> None:
     world = World(width=5, height=5, tiles=[[OUTSIDE for _ in range(5)] for _ in range(5)])
     player = EntityId(1)
-    companion = EntityId(2)
+    companion_a = EntityId(2)
+    companion_b = EntityId(3)
+    companion_c = EntityId(4)
     world.positions.add(player, Position(x=1, y=1))
-    world.positions.add(companion, Position(x=2, y=1))
+    world.positions.add(companion_a, Position(x=2, y=1))
+    world.positions.add(companion_b, Position(x=3, y=1))
+    world.positions.add(companion_c, Position(x=4, y=1))
 
-    assert _presentation_for(player, world, 1, 1, [player, companion]).char == "@"
-    assert _presentation_for(player, world, 2, 1, [player, companion]).char == "#"
+    party = [player, companion_a, companion_b, companion_c]
+    # Leader stays ``@``; companions get numbered glyphs (``1``-``9``)
+    # so a human watching a four-member party can tell them apart at a
+    # glance instead of squinting at three identical ``#``s.
+    assert _presentation_for(player, world, 1, 1, party).char == "@"
+    assert _presentation_for(player, world, 2, 1, party).char == "1"
+    assert _presentation_for(player, world, 3, 1, party).char == "2"
+    assert _presentation_for(player, world, 4, 1, party).char == "3"
+
+
+def test_party_glyph_for_index_falls_back_to_hash_beyond_nine() -> None:
+    """The numbered-glyph rule covers a party of up to ten (leader + 9).
+
+    Beyond that we fall back to ``#`` rather than overflow into
+    multi-character glyphs. The renderer always emits a single
+    character per tile, so a two-character "10" would mis-paint the
+    map.
+    """
+    from src.systems.render_system import party_glyph_for_index
+
+    assert party_glyph_for_index(0) == "@"
+    assert party_glyph_for_index(1) == "1"
+    assert party_glyph_for_index(9) == "9"
+    assert party_glyph_for_index(10) == "#"
+    assert party_glyph_for_index(99) == "#"
 
 
 def test_terrain_render_tokens_and_colors_are_projection_only() -> None:

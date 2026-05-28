@@ -21,10 +21,12 @@ his dialogue carries an `AcceptQuestEffect` for "The Sunken Gate"
 and emits the victory condition into the message log. See
 [`quest.md`](quest.md) for the full quest pipeline.
 
-A joined party member renders as `#` instead of `@` because the
-renderer projects party glyphs (lead is `@`, followers are `#`). The
-recruited NPC keeps its position, character sheet, weapon, armor, and
-combat stats so the new party member fights from the next tick.
+A joined party member renders as their numbered party slot
+(`1`, `2`, ...) instead of `@`. The renderer projects the lead as
+`@` and follower N as the digit `N` (up to nine companions); a tenth
+or later companion falls back to `#`. The recruited NPC keeps its
+position, character sheet, weapon, armor, and combat stats so the new
+party member fights from the next tick.
 
 ## Entering the modal
 

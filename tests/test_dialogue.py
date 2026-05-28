@@ -291,6 +291,32 @@ def test_recruit_option_adds_npc_to_party_and_removes_npc_marker() -> None:
     assert app.ui_mode is UIMode.play
 
 
+def test_recruit_updates_presentation_glyph_to_party_index() -> None:
+    """A recruited NPC's stored :class:`Presentation` glyph is rewritten
+    to the numbered party slot they just landed in. This keeps the
+    M37 observation glyph field in sync with the on-screen map.
+
+    ``_spawn_npc`` dismisses any companion sitting on the target tile
+    so the NPC can be reached with an adjacency interact, which means
+    the recruited NPC slots into whatever party index sits at the
+    tail after the dismissal. We assert against that index rather
+    than a fixed digit so the test stays robust against starter-party
+    size changes.
+    """
+    app = _make_app_with_player()
+    tree = recruit_tree("npc.karn", "Join?", "Welcome.")
+    npc = _spawn_npc(app, NPCKind.RECRUIT, tree, name="Karn")
+    app.facing = (1, 0)
+    app.handle_key(ord("e"))
+    app.handle_key(ord("1"))  # accept
+
+    new_index = app.party.members.index(npc)
+    assert new_index >= 1  # never the leader
+    # ``new_index`` falls in the digit range for any plausible party
+    # (1..9), so the stored glyph is the matching digit.
+    assert app.world.presentations.require(npc).glyph == str(new_index)
+
+
 def test_recruit_decline_does_not_join_party() -> None:
     app = _make_app_with_player()
     tree = recruit_tree("npc.karn", "Join?", "Welcome.")

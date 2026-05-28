@@ -10,7 +10,20 @@ from src.core.items import (
 )
 from src.core.modes import PlayMode, UIMode
 from src.core.world import World
+from src.map.room_builder import build_room_world
 from src.map.tiles import RUBBLE
+
+
+def _create_room_app():
+    """Boot an :class:`App` against the M0 starter room.
+
+    The default ``create_app`` world is the M8 skeleton (Hearthgate +
+    Sunken Gate). Tests in this module that need a small, controlled
+    world with a single frog opponent ask for the M0 room explicitly so
+    they don't have to fight the kobold warlord boss the skeleton seeds.
+    """
+
+    return create_app(world_builder=build_room_world)
 
 
 def move_extra_party_members_away(app) -> None:
@@ -148,8 +161,111 @@ def test_create_app_seeds_companion_starter_inventory_and_equipment() -> None:
     _assert_starter_inventory_and_equipment(app.world, app.party[1])
 
 
-def test_battle_mode_uses_space_to_rotate_active_party_focus() -> None:
+def test_default_create_app_uses_world_skeleton_with_town_npcs() -> None:
+    """Bug D regression: ``create_app()`` should drop the player into the
+    M8 overworld next to Hearthgate, not the M0 starter room.
+
+    Concretely, after a YOLO start the player must be able to walk to
+    Captain Tane (the M14 quest giver) without crossing a wall, and
+    Captain Tane / Old Gerda / Quartermaster Hadrin / Karn the Wanderer
+    must all be present in the world. The M0 room had none of these.
+    """
+    from src.world.content.skeleton import Point, shortest_walkable_path
+
     app = create_app()
+    app.handle_key(ord("y"))  # YOLO start so the party is fully wired
+
+    npc_names = {app.world.name_for(entity) for entity in app.world.npcs.values}
+    assert {
+        "Old Gerda",
+        "Quartermaster Hadrin",
+        "Karn the Wanderer",
+        "Captain Tane",
+    } <= npc_names
+
+    tane = next(
+        entity
+        for entity in app.world.npcs.values
+        if app.world.name_for(entity) == "Captain Tane"
+    )
+    player_position = app.world.positions.require(app.player)
+    tane_position = app.world.positions.require(tane)
+    path = shortest_walkable_path(
+        app.world,
+        Point(player_position.x, player_position.y),
+        Point(tane_position.x, tane_position.y),
+    )
+    # Tane is a few tiles up the road -- the exact path length depends
+    # on tile painting but it should be well under "lol nope".
+    assert path, "Player must have a walkable path to Captain Tane"
+    assert len(path) < 40
+
+
+def test_default_create_app_seeds_sunken_gate_quest_giver_and_boss() -> None:
+    """The M14 quest path needs both Captain Tane (the offer) and the
+    kobold warlord (the win condition) to be present in the default
+    world. A fresh app must support the entire questline end-to-end.
+    """
+    app = create_app()
+    app.handle_key(ord("y"))
+
+    tane = next(
+        (
+            entity
+            for entity in app.world.npcs.values
+            if app.world.name_for(entity) == "Captain Tane"
+        ),
+        None,
+    )
+    assert tane is not None
+    assert app.world.npc_dialogues.has(tane)
+
+    boss = next(
+        (entity for entity in app.world.boss_markers.values),
+        None,
+    )
+    assert boss is not None
+
+
+def test_create_app_numbers_companion_presentations_by_party_index() -> None:
+    """Bug B regression: in a 4-member party the three companions
+    render as ``1``, ``2``, ``3`` (not three indistinguishable ``#``s)
+    and the player stays on ``@``. The stored
+    :class:`Presentation` must agree with the renderer projection so
+    the M37 observation snapshot reports the same glyph the human sees
+    on the map.
+    """
+    app = create_app()
+    app.handle_key(ord("y"))  # YOLO start, full party
+
+    assert len(app.party) == 4
+    player_presentation = app.world.presentations.require(app.player)
+    assert player_presentation.glyph == "@"
+
+    companion_glyphs = [
+        app.world.presentations.require(companion).glyph
+        for companion in app.party[1:]
+    ]
+    assert companion_glyphs == ["1", "2", "3"]
+
+
+def test_world_builder_can_be_overridden_with_room_world() -> None:
+    """Fixtures and tests that need the tiny M0 starter room must still
+    be able to inject :func:`build_room_world` so they don't have to
+    deal with the M8 skeleton's NPCs and boss.
+    """
+    app = create_app(world_builder=build_room_world)
+    # Room world has no town NPCs; the only seeded creature is the
+    # starter-room frog (built by ``build_room_world``).
+    assert not app.world.npcs.values  # M0 room is NPC-free
+    creature_names = {
+        app.world.name_for(entity) for entity in app.world.creatures.values
+    }
+    assert creature_names == {"frog"}
+
+
+def test_battle_mode_uses_space_to_rotate_active_party_focus() -> None:
+    app = _create_room_app()
     app.handle_key(ord("y"))
     player, companion = app.party[:2]
     frog = next(iter(app.world.creatures.values))
@@ -196,7 +312,7 @@ def test_battle_mode_uses_space_to_rotate_active_party_focus() -> None:
 
 
 def test_turn_advance_resets_resources_without_dropping_grants() -> None:
-    app = create_app()
+    app = _create_room_app()
     app.handle_key(ord("y"))
     player, companion = app.party[:2]
     frog = next(iter(app.world.creatures.values))
@@ -233,7 +349,7 @@ def test_turn_advance_resets_resources_without_dropping_grants() -> None:
 
 
 def test_inventory_mode_does_not_reset_action_economy() -> None:
-    app = create_app()
+    app = _create_room_app()
     app.handle_key(ord("y"))
     frog = next(iter(app.world.creatures.values))
     for entity in list(app.world.creatures.values):
@@ -257,7 +373,7 @@ def test_inventory_mode_does_not_reset_action_economy() -> None:
 
 
 def test_movement_spends_budget_and_blocks_when_exhausted() -> None:
-    app = create_app()
+    app = _create_room_app()
     app.handle_key(ord("y"))
     player = app.active_actor()
     frog = next(iter(app.world.creatures.values))
@@ -277,7 +393,7 @@ def test_movement_spends_budget_and_blocks_when_exhausted() -> None:
 
 
 def test_diagonal_movement_spends_four_and_quarter_feet() -> None:
-    app = create_app()
+    app = _create_room_app()
     app.handle_key(ord("y"))
     player = app.active_actor()
     companion = app.party[1]
@@ -300,7 +416,7 @@ def test_diagonal_movement_spends_four_and_quarter_feet() -> None:
 
 
 def test_battle_move_onto_rubble_spends_terrain_adjusted_cost() -> None:
-    app = create_app()
+    app = _create_room_app()
     app.handle_key(ord("y"))
     player = app.active_actor()
     companion = app.party[1]
@@ -323,7 +439,7 @@ def test_battle_move_onto_rubble_spends_terrain_adjusted_cost() -> None:
 
 
 def test_battle_move_is_denied_when_terrain_adjusted_cost_exceeds_remaining() -> None:
-    app = create_app()
+    app = _create_room_app()
     app.handle_key(ord("y"))
     player = app.active_actor()
     companion = app.party[1]
@@ -453,7 +569,7 @@ def test_voluntary_turn_mode_uses_battle_movement_budget_without_enemies() -> No
 
 
 def test_enemy_presence_forces_battle_and_exit_waits_until_hostiles_are_gone() -> None:
-    app = create_app()
+    app = _create_room_app()
     app.handle_key(ord("y"))
     frog = next(iter(app.world.creatures.values))
     for entity in list(app.world.creatures.values):
@@ -474,7 +590,7 @@ def test_enemy_presence_forces_battle_and_exit_waits_until_hostiles_are_gone() -
 
 
 def test_hostile_interrupting_voluntary_turn_mode_returns_to_explore_after_combat() -> None:
-    app = create_app()
+    app = _create_room_app()
     app.handle_key(ord("y"))
     frog = next(iter(app.world.creatures.values))
     for entity in list(app.world.creatures.values):
@@ -544,7 +660,7 @@ def test_voluntary_turn_party_round_does_not_run_enemy_activations() -> None:
 
 
 def test_killing_last_hostile_switches_to_explore_mode() -> None:
-    app = create_app()
+    app = _create_room_app()
     app.handle_key(ord("y"))
     frog = next(iter(app.world.creatures.values))
     for entity in list(app.world.creatures.values):
@@ -562,7 +678,7 @@ def test_killing_last_hostile_switches_to_explore_mode() -> None:
 
 
 def test_battle_mode_displaces_party_member_and_spends_movement() -> None:
-    app = create_app()
+    app = _create_room_app()
     app.handle_key(ord("y"))
     player, companion = app.party[:2]
     frog = next(iter(app.world.creatures.values))
@@ -585,7 +701,7 @@ def test_battle_mode_displaces_party_member_and_spends_movement() -> None:
 
 
 def test_battle_party_displacement_onto_rubble_spends_adjusted_cost() -> None:
-    app = create_app()
+    app = _create_room_app()
     app.handle_key(ord("y"))
     player, companion = app.party[:2]
     frog = next(iter(app.world.creatures.values))
@@ -608,7 +724,7 @@ def test_battle_party_displacement_onto_rubble_spends_adjusted_cost() -> None:
 
 
 def test_attack_spends_action_but_not_movement_and_repeat_attack_is_blocked() -> None:
-    app = create_app()
+    app = _create_room_app()
     app.handle_key(ord("y"))
     player = app.active_actor()
     companion = app.party[1]
@@ -636,7 +752,7 @@ def test_attack_spends_action_but_not_movement_and_repeat_attack_is_blocked() ->
 
 
 def test_actor_can_still_move_after_attacking() -> None:
-    app = create_app()
+    app = _create_room_app()
     app.handle_key(ord("y"))
     player = app.active_actor()
     companion = app.party[1]
@@ -661,7 +777,7 @@ def test_actor_can_still_move_after_attacking() -> None:
 
 
 def test_enemy_activation_uses_full_turn_after_party_round() -> None:
-    app = create_app()
+    app = _create_room_app()
     app.handle_key(ord("y"))
     player, companion = app.party[:2]
     frog = next(iter(app.world.creatures.values))
@@ -685,7 +801,7 @@ def test_enemy_activation_uses_full_turn_after_party_round() -> None:
 
 
 def test_enemy_activation_uses_default_budget_not_active_party_budget() -> None:
-    app = create_app()
+    app = _create_room_app()
     app.handle_key(ord("y"))
     player, companion = app.party[:2]
     frog = next(iter(app.world.creatures.values))
@@ -709,7 +825,7 @@ def test_enemy_activation_uses_default_budget_not_active_party_budget() -> None:
 
 
 def test_enemy_step_feasibility_uses_terrain_adjusted_remaining_budget() -> None:
-    app = create_app()
+    app = _create_room_app()
     app.handle_key(ord("y"))
     player, companion = app.party[:2]
     frog = next(iter(app.world.creatures.values))
@@ -733,7 +849,7 @@ def test_enemy_step_feasibility_uses_terrain_adjusted_remaining_budget() -> None
 
 
 def test_enemy_movement_spending_uses_terrain_adjusted_cost() -> None:
-    app = create_app()
+    app = _create_room_app()
     app.handle_key(ord("y"))
     player, companion = app.party[:2]
     frog = next(iter(app.world.creatures.values))
