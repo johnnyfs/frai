@@ -119,7 +119,7 @@ Architecture direction:
 | M44 | Extract TurnController / ActivationSystem          | M4, M43                     | #37               | unassigned |
 | M45 | PartyState world abstraction                       | M1, M6, M44                 | #38               | unassigned |
 | M46 | ActionContext / ResolvedAttempt                    | M43, M44                    | #39               | unassigned |
-| M47 | Split UIMode and PlayMode                          | M1                          | #40               | unassigned |
+| M47 | Split UIMode and PlayMode                          | M1                          | #51               | complete   |
 | M48 | AwarenessSystem query service                      | M1                          | #46               | complete   |
 | M49 | GameState container                                | M43, M44, M45, M47          | #42               | unassigned |
 
