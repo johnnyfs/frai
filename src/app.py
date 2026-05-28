@@ -1,7 +1,6 @@
 from dataclasses import dataclass, field
 import curses
 import random
-from typing import Literal
 
 from src.core.combat import combat_stats_for_sheet, starter_armor_for_class, starter_weapon_for_class
 from src.core.config import MIN_TERMINAL_HEIGHT, MIN_TERMINAL_WIDTH, WORLD_HEIGHT, WORLD_WIDTH
@@ -30,6 +29,13 @@ from src.core.effects import (
 from src.core.entity import EntityId
 from src.core.actions import AttackAttempt, EndTurn, MoveAttempt
 from src.core.modes import GameMode, GameOverMode, NormalMode, StartChoiceMode
+from src.core.turns import (
+    ActivationState,
+    MajorMode,
+    MOVEMENT_TOTAL_FEET,
+    major_mode_for_hostiles,
+    movement_cost as movement_cost_for_delta,
+)
 from src.core.world import World
 from src.map.room_builder import BuiltRoom, build_room_world
 from src.systems.game_over_system import GameOverSystem
@@ -44,19 +50,6 @@ from src.systems.quit_system import QuitSystem
 from src.systems.render_system import render
 from src.systems.start_system import StartSystem, yolo_sheet
 from src.ui.screen import Screen
-
-
-MOVEMENT_TOTAL_FEET = 30.0
-ORTHOGONAL_MOVE_FEET = 3.0
-DIAGONAL_MOVE_FEET = 4.25
-MajorMode = Literal["explore", "battle"]
-
-
-@dataclass(slots=True)
-class ActivationState:
-    movement_used: float = 0.0
-    movement_total: float = MOVEMENT_TOTAL_FEET
-    action_used: bool = False
 
 
 @dataclass(slots=True)
@@ -135,7 +128,7 @@ class App:
         self.sync_major_mode()
 
     def sync_major_mode(self) -> None:
-        next_mode: MajorMode = "battle" if _hostiles_in_sight(self.world, self.party) else "explore"
+        next_mode = major_mode_for_hostiles(_hostiles_in_sight(self.world, self.party))
         if next_mode == self.major_mode:
             return
         self.major_mode = next_mode
@@ -168,9 +161,8 @@ class App:
         displacement = _party_displacement(self.world, self.party, action)
         if displacement is not None:
             cost = movement_cost(action)
-            if self.activation.movement_used + cost > self.activation.movement_total:
+            if not self.activation.spend_movement(cost):
                 return [EmitMessage("No movement remaining.")]
-            self.activation.movement_used += cost
             return displacement
 
         target = _hostile_target_for_move(self.world, action)
@@ -178,11 +170,11 @@ class App:
             if self.activation.action_used:
                 return [EmitMessage("Action already used.")]
             effects = self.dispatcher.dispatch(action, self.world)
-            self.activation.action_used = True
+            self.activation.spend_action()
             return effects
 
         cost = movement_cost(action)
-        if self.activation.movement_used + cost > self.activation.movement_total:
+        if not self.activation.can_spend_movement(cost):
             return [EmitMessage("No movement remaining.")]
 
         effects = self.dispatcher.dispatch(action, self.world)
@@ -190,7 +182,7 @@ class App:
             isinstance(effect, MoveEntity) and effect.entity == action.actor
             for effect in effects
         ):
-            self.activation.movement_used += cost
+            self.activation.spend_movement(cost)
         return effects
 
     def advance_party_turn(self) -> None:
@@ -229,7 +221,12 @@ class App:
                     break
                 if movement_used >= MOVEMENT_TOTAL_FEET:
                     break
-                step = _enemy_step_toward(self.world, enemy, target, MOVEMENT_TOTAL_FEET - movement_used)
+                step = _enemy_step_toward(
+                    self.world,
+                    enemy,
+                    target,
+                    MOVEMENT_TOTAL_FEET - movement_used,
+                )
                 if step is None:
                     break
                 dx, dy = step
@@ -273,7 +270,7 @@ def create_app(width: int = WORLD_WIDTH, height: int = WORLD_HEIGHT) -> App:
         party=party,
         active_party_index=0,
         dispatcher=dispatcher,
-        major_mode="battle" if _hostiles_in_sight(built.world, party) else "explore",
+        major_mode=major_mode_for_hostiles(_hostiles_in_sight(built.world, party)),
     )
 
 
@@ -330,9 +327,7 @@ def _assign_character_sheet(world: World, entity: EntityId, sheet: CharacterShee
 
 
 def movement_cost(action: MoveAttempt) -> float:
-    if action.dx != 0 and action.dy != 0:
-        return DIAGONAL_MOVE_FEET
-    return ORTHOGONAL_MOVE_FEET
+    return movement_cost_for_delta(action.dx, action.dy)
 
 
 def _hostile_target_for_move(world: World, action: MoveAttempt) -> EntityId | None:

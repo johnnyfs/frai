@@ -334,6 +334,44 @@ def test_enemy_activation_uses_full_turn_after_party_round() -> None:
     assert "frog" in app.messages.current
 
 
+def test_enemy_activation_uses_default_budget_not_active_party_budget() -> None:
+    app = create_app()
+    app.handle_key(ord("y"))
+    player, companion = app.party
+    frog = next(iter(app.world.creatures.values))
+    for entity in list(app.world.creatures.values):
+        if entity != frog:
+            app.world.remove_entity(entity)
+    app.world.positions.require(player).x = 160
+    app.world.positions.require(player).y = 40
+    app.world.positions.require(companion).x = 161
+    app.world.positions.require(companion).y = 40
+    app.world.positions.require(frog).x = 149
+    app.world.positions.require(frog).y = 40
+    app.active_party_index = 1
+    app.activation.movement_total = 3
+
+    app.handle_key(ord(" "))
+
+    assert app.active_actor() == player
+    assert app.world.positions.require(frog).x == 159
+
+
+def test_sync_major_mode_resets_activation_on_mode_transition() -> None:
+    app = create_app()
+    app.handle_key(ord("y"))
+    app.activation.movement_used = 12
+    app.activation.action_used = True
+
+    for entity in list(app.world.creatures.values):
+        app.world.remove_entity(entity)
+    app.sync_major_mode()
+
+    assert app.major_mode == "explore"
+    assert app.activation.movement_used == 0
+    assert app.activation.action_used is False
+
+
 def test_created_character_gets_class_starter_weapon() -> None:
     app = create_app()
 
