@@ -106,7 +106,7 @@ Architecture direction:
 | M31 | Command help and keybinding screen                 | M17                         | #28               | unassigned |
 | M32 | Error and message discipline                       | M17                         | #18               | unassigned |
 | M33 | Debug/dev tools                                    | M2                          | #55               | complete   |
-| M34 | Rest system and shelter zones                      | M4, M7, M11, M27            | #21               | unassigned |
+| M34 | Rest system and shelter zones                      | M4, M7, M11, M27            | #21               | complete   |
 | M35 | Agent-readable observation mode                    | (foundation)                | #58               | complete   |
 | M36 | Command scripting and agent input mode             | M22, M35                    | #68               | complete   |
 | M37 | Playtest harness                                   | M35, M36                    | #71               | complete   |

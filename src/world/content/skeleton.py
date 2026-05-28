@@ -34,6 +34,7 @@ from src.core.entity import EntityId
 from src.core.factions import FactionId
 from src.core.items import add_item, armor_item_id_for_name, weapon_item_id_for_name
 from src.core.quest import SUNKEN_GATE_QUEST_ID
+from src.core.shelter import RestPermission, RestRisk, ShelterZone
 from src.core.world import World
 from src.map.tiles import DUNGEON_FLOOR, FOREST, GRASS, ROAD, TOWN_FLOOR, WATER, Tile
 
@@ -155,6 +156,11 @@ def build_world_skeleton(
 
     _populate_town(world, _location_by_id(locations, "town"))
     _populate_dungeon_boss(world, _location_by_id(locations, "dungeon_level_3"))
+    _populate_shelter_zones(
+        world,
+        town=_location_by_id(locations, "town"),
+        forest=_location_by_id(locations, "forest"),
+    )
 
     return BuiltWorldSkeleton(
         world=world,
@@ -396,6 +402,72 @@ def _populate_town(world: World, town: LocationSpec) -> None:
             "Come find me when you change your mind. The chalice "
             "won't wait forever."
         ),
+    )
+
+
+def _populate_shelter_zones(
+    world: World,
+    *,
+    town: LocationSpec,
+    forest: LocationSpec,
+) -> None:
+    """Register the M34 shelter zones on the world skeleton.
+
+    Two zones land on the default world:
+
+    - ``tavern_room`` inside the town: long rest permitted, safe, 5gp
+      per stay. Sits in the southeast corner of the town rect so it
+      doesn't overlap the NPC spawns from :func:`_populate_town`.
+    - ``forest_glade`` inside the forest: short rest only, safe, free.
+      Centred on the forest anchor so an autowalk from the overworld
+      crossroads naturally lands in it.
+
+    Both zones are small enough that the player notices the entry /
+    exit text without spending the whole map inside one. They are
+    placed via :class:`ShelterZone` so save/load round-trips them
+    through :class:`ShelterZoneRegistry.from_dict`.
+    """
+
+    bounds = town.bounds
+    # Tavern room: 3x3 in the southeast corner of the town rect. The
+    # NPC spawns sit in the north and southwest corners (see
+    # ``_populate_town``) so this 3x3 patch is unoccupied.
+    tavern_left = bounds.right - 3
+    tavern_top = bounds.bottom - 3
+    world.shelter_zones.add(
+        ShelterZone(
+            zone_id="tavern_room",
+            left=tavern_left,
+            top=tavern_top,
+            width=3,
+            height=3,
+            rest_permission=RestPermission.BOTH,
+            rest_risk=RestRisk.NONE,
+            entry_message="The tavern room is warm and quiet.",
+            exit_message="You step back out into Hearthgate.",
+            cost=5,
+            label="Tavern room",
+        )
+    )
+
+    # Forest glade: 3x3 around the forest anchor. Short-rest only so
+    # the player still has a reason to make it back to town for a
+    # long rest.
+    glade = forest.anchor
+    world.shelter_zones.add(
+        ShelterZone(
+            zone_id="forest_glade",
+            left=glade.x - 1,
+            top=glade.y - 1,
+            width=3,
+            height=3,
+            rest_permission=RestPermission.SHORT_ONLY,
+            rest_risk=RestRisk.NONE,
+            entry_message="A sheltered glade opens beneath the canopy.",
+            exit_message="You leave the glade behind.",
+            cost=0,
+            label="Forest glade",
+        )
     )
 
 

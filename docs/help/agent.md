@@ -42,12 +42,13 @@ restored = Observation.from_dict(payload)
 | `modal`             | `ModalSnapshot | None`                                                      | Present whenever `ui_mode != play`. |
 | `world_time`        | `{seconds, rounds, minutes, hours}`                                         | Mirrors `app.world.clock`. |
 | `quests`            | `list[{quest_id, state}]`                                                   | M14 party quest log. Empty when the party hasn't touched any quest. `state` is one of `offered`, `accepted`, `completed`, `failed`. |
+| `shelter`           | `ShelterSnapshot | None`                                                    | Set when the party leader stands inside a `ShelterZone` (M34). Carries `zone_id`, `label`, `rest_permission`, `rest_risk`, `cost`, `uses_remaining`, `requirements`. |
 
 ### Mode strings
 
 `ui_mode` is one of: `start`, `character_creation`, `play`, `inventory`,
 `dialogue`, `shop`, `targeting`, `examine`, `help`, `message_pager`,
-`quit_confirm`, `game_over`.
+`spell_menu`, `rest_menu`, `quit_confirm`, `game_over`.
 
 `play_mode` is one of: `explore`, `turn_based`, `voluntary_turn`.
 
@@ -113,7 +114,7 @@ for outcome in outcomes:
 | `e`                | Interact with the facing tile (opens dialogue on adjacent NPC, M13). |
 | `,`                | Pick up items on the actor's tile.               |
 | `i`                | Open/close inventory.                            |
-| `r`                | Short rest. No-op until M34 lands.               |
+| `r`                | Open the rest menu (M34). Send `s`/`l` to pick a kind, or `Esc` to cancel. |
 | `x`                | Open examine cursor (M21). `;` is an alias.      |
 | `?`                | Open help. No-op until M39 lands.                |
 | `.`                | Wait one tick.                                   |

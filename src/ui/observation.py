@@ -176,6 +176,26 @@ class QuestProgressSummary:
 
 
 @dataclass(frozen=True, slots=True)
+class ShelterSnapshot:
+    """The shelter zone the party leader currently stands on (M34).
+
+    ``None`` outside any zone. Surfaces the zone's permission, risk,
+    cost, and remaining uses so an agentic playtester can decide
+    whether to rest here without inspecting world component stores
+    directly. ``label`` is the human-readable zone name (defaults to
+    empty string if the map author didn't set one).
+    """
+
+    zone_id: str
+    label: str
+    rest_permission: str
+    rest_risk: str
+    cost: int
+    uses_remaining: int | None
+    requirements: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class Observation:
     """Snapshot of the agent-visible state at a single point in time."""
 
@@ -190,6 +210,7 @@ class Observation:
     modal: ModalSnapshot | None
     world_time: WorldTimeSnapshot
     quests: list[QuestProgressSummary] = field(default_factory=list)
+    shelter: ShelterSnapshot | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Return a fully JSON-serializable dict representation."""
@@ -217,6 +238,7 @@ class Observation:
                 {"quest_id": quest.quest_id, "state": quest.state}
                 for quest in self.quests
             ],
+            "shelter": _shelter_to_dict(self.shelter),
         }
 
     @classmethod
@@ -265,6 +287,7 @@ class Observation:
                 )
                 for item in payload.get("quests", [])
             ],
+            shelter=_shelter_from_dict(payload.get("shelter")),
         )
 
 
@@ -340,6 +363,35 @@ def _condition_from_dict(payload: dict[str, Any]) -> ConditionSummary:
     )
 
 
+def _shelter_to_dict(snapshot: "ShelterSnapshot | None") -> dict[str, Any] | None:
+    if snapshot is None:
+        return None
+    return {
+        "zone_id": snapshot.zone_id,
+        "label": snapshot.label,
+        "rest_permission": snapshot.rest_permission,
+        "rest_risk": snapshot.rest_risk,
+        "cost": snapshot.cost,
+        "uses_remaining": snapshot.uses_remaining,
+        "requirements": list(snapshot.requirements),
+    }
+
+
+def _shelter_from_dict(payload: dict[str, Any] | None) -> "ShelterSnapshot | None":
+    if payload is None:
+        return None
+    uses_raw = payload.get("uses_remaining")
+    return ShelterSnapshot(
+        zone_id=str(payload["zone_id"]),
+        label=str(payload.get("label", "")),
+        rest_permission=str(payload.get("rest_permission", "")),
+        rest_risk=str(payload.get("rest_risk", "")),
+        cost=int(payload.get("cost", 0)),
+        uses_remaining=int(uses_raw) if uses_raw is not None else None,
+        requirements=tuple(str(item) for item in payload.get("requirements", ())),
+    )
+
+
 def observe(app: Any) -> Observation:
     """Build a structured snapshot of the current game state.
 
@@ -381,6 +433,7 @@ def observe(app: Any) -> Observation:
     modal = _modal_snapshot(app)
     world_time = _world_time_snapshot(world.clock)
     quests = _quest_progress(app)
+    shelter = _shelter_snapshot(app)
 
     return Observation(
         mode={"ui_mode": ui_mode.value, "play_mode": play_mode_value},
@@ -394,6 +447,7 @@ def observe(app: Any) -> Observation:
         modal=modal,
         world_time=world_time,
         quests=quests,
+        shelter=shelter,
     )
 
 
@@ -739,6 +793,9 @@ def _available_actions(
     if ui_mode is UIMode.spell_menu:
         # M11: spell menu only accepts a letter pick or cancel.
         return ["spell_menu.pick", "spell_menu.cancel"]
+    if ui_mode is UIMode.rest_menu:
+        # M34: rest menu accepts a kind pick (short / long) or cancel.
+        return ["rest_menu.short", "rest_menu.long", "rest_menu.cancel"]
     if ui_mode is not UIMode.play or active is None:
         return []
 
@@ -749,6 +806,7 @@ def _available_actions(
         "pickup",
         "sneak",
         "perceive",
+        "rest",
         "quit",
     ]
     # The cast action is only meaningful when the active actor has a
@@ -886,6 +944,13 @@ def _modal_snapshot(app: Any) -> ModalSnapshot | None:
             if spell_list is not None:
                 options = list(spell_list.known)
         return ModalSnapshot(kind="spell_menu", options=options)
+    if ui_mode is UIMode.rest_menu:
+        # M34: surface the rest kinds. The active actor's tile
+        # determines which kinds are *actually* permitted, but the
+        # modal itself always offers both keys — the rest system
+        # produces the refusal banner on an unsupported pick so the
+        # agent learns the constraint by trying it.
+        return ModalSnapshot(kind="rest_menu", options=["short", "long", "cancel"])
     # Future modal kinds (examine, help) just report the kind;
     # option content will be filled in as those land.
     return ModalSnapshot(kind=ui_mode.value, options=[])
@@ -897,4 +962,45 @@ def _world_time_snapshot(clock: Any) -> WorldTimeSnapshot:
         rounds=int(clock.rounds),
         minutes=int(clock.minutes),
         hours=int(clock.hours),
+    )
+
+
+def _shelter_snapshot(app: Any) -> ShelterSnapshot | None:
+    """Return a :class:`ShelterSnapshot` for the party leader's tile, or ``None``.
+
+    Reads the party leader's position and projects the
+    :class:`~src.core.shelter.ShelterZone` (if any) covering that tile.
+    The leader's tile (not the active actor's) is used so the answer
+    stays stable across companion rotations in turn-based play —
+    consistent with how :func:`tick_zone_transitions` chooses which
+    entity drives entry / exit messages.
+    """
+
+    world = getattr(app, "world", None)
+    if world is None:
+        return None
+    registry = getattr(world, "shelter_zones", None)
+    if registry is None or not registry.zones:
+        return None
+    party = getattr(app, "party", None)
+    if party is None:
+        return None
+    members = getattr(party, "members", [])
+    if not members:
+        return None
+    leader = members[0]
+    position = world.positions.get(leader)
+    if position is None:
+        return None
+    zone = registry.at(position.x, position.y)
+    if zone is None:
+        return None
+    return ShelterSnapshot(
+        zone_id=zone.zone_id,
+        label=zone.label,
+        rest_permission=zone.rest_permission.value,
+        rest_risk=zone.rest_risk.value,
+        cost=int(zone.cost),
+        uses_remaining=zone.uses_remaining,
+        requirements=tuple(zone.requirements),
     )

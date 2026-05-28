@@ -129,7 +129,14 @@ class InventoryCommand:
 
 @dataclass(frozen=True, slots=True)
 class RestCommand:
-    """`r` — short rest. No-op until M34 rest content lands."""
+    """`r` — open the rest menu (M34).
+
+    The App resolves the key into a :class:`RestMenuRequest`; the
+    agent then sends ``s`` or ``l`` (or ``Esc`` to cancel) to pick the
+    rest kind. Resting outside a shelter zone emits a refusal banner
+    so a script can detect "no shelter here" without inspecting the
+    world.
+    """
 
 
 @dataclass(frozen=True, slots=True)

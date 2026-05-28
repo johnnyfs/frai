@@ -158,14 +158,7 @@ class DropItemAttempt:
 
 @dataclass(frozen=True, slots=True)
 class SneakAttempt:
-    """Actor tries to enter the ``hidden`` condition (M23 stealth).
-
-    Resolution is a Dexterity (Stealth) check at DC 10 by default. On
-    success the actor gains the ``hidden`` condition and the engine's
-    awareness queries stop auto-spotting them. On failure no condition
-    is applied; if the actor was already hidden the failure also
-    breaks stealth.
-    """
+    """Actor tries to enter the ``hidden`` condition (M23 stealth)."""
 
     actor: EntityId
     dc: int = 10
@@ -173,18 +166,35 @@ class SneakAttempt:
 
 @dataclass(frozen=True, slots=True)
 class PerceptionAttempt:
-    """Actor tries to spot every hidden creature within sight (M23).
-
-    DC 10 Wisdom (Perception) check by default. On success the actor's
-    awareness tracker is set to ``aware`` for every currently-hidden
-    creature in their visible set; the corresponding targets also have
-    their ``hidden`` condition stripped (they're no longer hidden from
-    *this* observer, and the M23 scope treats hidden as a global tag
-    rather than a per-observer flag).
-    """
+    """Actor tries to spot every hidden creature within sight (M23)."""
 
     actor: EntityId
     dc: int = 10
+
+
+@dataclass(frozen=True, slots=True)
+class RestMenuRequest:
+    """Open the rest-selection modal for ``actor`` (M34)."""
+
+    actor: EntityId
+
+
+@dataclass(frozen=True, slots=True)
+class CloseRestMenu:
+    """Dismiss the rest-selection modal without resting (M34)."""
+
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class RestMenuChoice:
+    """Player picked a rest kind from the rest menu (M34).
+
+    ``kind`` is one of ``"short"`` or ``"long"``.
+    """
+
+    actor: EntityId
+    kind: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -227,4 +237,7 @@ Action: TypeAlias = (
     | SpellMenuChoice
     | SneakAttempt
     | PerceptionAttempt
+    | RestMenuRequest
+    | CloseRestMenu
+    | RestMenuChoice
 )

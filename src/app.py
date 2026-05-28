@@ -51,6 +51,7 @@ from src.core.factions import FactionId
 from src.core.actions import (
     Action,
     CastSpellAttempt,
+    CloseRestMenu,
     CloseSpellMenu,
     DropItemAttempt,
     EndTurn,
@@ -58,6 +59,8 @@ from src.core.actions import (
     InteractAttempt,
     MoveAttempt,
     PickupAttempt,
+    RestMenuChoice,
+    RestMenuRequest,
     SpellMenuChoice,
     SpellMenuRequest,
     ToggleTurnMode,
@@ -107,10 +110,12 @@ from src.systems.movement_system import (
 from src.systems.obstruction_system import ObstructionSystem
 from src.systems.quit_system import QuitSystem
 from src.systems.render_system import render
+from src.systems.rest_system import attempt_long_rest, attempt_short_rest
 from src.systems.spell_system import SpellSystem
 from src.systems.start_system import StartSystem, yolo_sheet
 from src.systems.stealth_system import StealthSystem
 from src.systems.vision_system import VisionSystem
+from src.systems.zone_system import tick_zone_transitions
 from src.ui.screen import Screen
 
 
@@ -400,6 +405,17 @@ class App:
     def apply_effects(self, effects: list[Effect]) -> None:
         self.effect_applier.apply_all(effects)
         self.refresh_vision()
+        # M34: surface shelter-zone entry / exit messages once per
+        # transition. ZoneSystem reads the party leader's tile after
+        # the effect batch has applied, so it sees the post-move
+        # position regardless of how the move was emitted (single
+        # step, autowalk, party displacement). The returned messages
+        # are applied through a second pass so any future zone
+        # effects (e.g. M14 quest triggers) flow through the same
+        # EffectApplier.
+        zone_effects = tick_zone_transitions(self)
+        if zone_effects:
+            self.effect_applier.apply_all(zone_effects)
 
     def run_debug_command(self, command: str) -> None:
         """Execute a single debug command line (M33).
@@ -499,6 +515,15 @@ class App:
             return
         if isinstance(action, SpellMenuChoice) and self.ui_mode is UIMode.spell_menu:
             self._handle_spell_menu_choice(action)
+            return
+        if isinstance(action, RestMenuRequest) and self.ui_mode is UIMode.play:
+            self._open_rest_menu()
+            return
+        if isinstance(action, CloseRestMenu) and self.ui_mode is UIMode.rest_menu:
+            self._close_rest_menu()
+            return
+        if isinstance(action, RestMenuChoice) and self.ui_mode is UIMode.rest_menu:
+            self._handle_rest_menu_choice(action)
             return
         if isinstance(action, InteractAttempt) and self.ui_mode is UIMode.play:
             if action.dx == 0 and action.dy == 0:
@@ -880,6 +905,48 @@ class App:
             actor=actor, spell_id=spell.spell_id, target_entities=tuple(targets)
         )
         effects = self.resolve_action(attempt)
+        self.apply_effects(effects)
+        self.sync_play_mode()
+
+    # ------------------------------------------------------------------
+    # Rest menu (M34)
+    # ------------------------------------------------------------------
+
+    def _open_rest_menu(self) -> None:
+        """Switch to the rest-selection modal.
+
+        Refusing to open while in combat keeps the modal cheap: an
+        agentic playtester (or a player who pressed ``r`` mid-fight)
+        gets a clear refusal instead of stepping into a modal that
+        would just refuse the only two options anyway.
+        """
+
+        if self.play_mode is not PlayMode.explore:
+            self.apply_effects([EmitMessage("You cannot rest while in combat.")])
+            return
+        self.ui_mode = UIMode.rest_menu
+        self.messages.emit("Rest: s) short, l) long (q to cancel)")
+
+    def _close_rest_menu(self) -> None:
+        self.ui_mode = UIMode.play
+        self.messages.emit("Rest menu closed.")
+
+    def _handle_rest_menu_choice(self, action: RestMenuChoice) -> None:
+        """Resolve the player's rest-kind pick through the rest system.
+
+        Close the modal first so the resulting message lands in the
+        play screen rather than over the rest prompt — same pattern
+        the spell menu uses.
+        """
+
+        self.ui_mode = UIMode.play
+        if action.kind == "short":
+            effects = attempt_short_rest(self, rng=self.loot_rng)
+        elif action.kind == "long":
+            effects = attempt_long_rest(self, rng=self.loot_rng)
+        else:
+            self.messages.emit(f"Unknown rest kind '{action.kind}'.")
+            return
         self.apply_effects(effects)
         self.sync_play_mode()
 

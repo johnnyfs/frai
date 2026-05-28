@@ -454,6 +454,60 @@ def _build_quest_path(_app: App, rng: random.Random | None = None) -> App:
     return make_fixture_app(rng=rng if rng is not None else _fixture_rng(), populate=populate)
 
 
+def _build_shelter_zone(_app: App, rng: random.Random | None = None) -> App:
+    """Tiny room hosting one safe shelter zone for M34 rest exercise.
+
+    The room is 11x9 with a single zone covering the eastern half of
+    the interior. Resting outside the zone (the western half) is
+    refused; stepping east into the zone fires the entry message, and
+    pressing ``r`` then picking ``l`` performs a full long rest. The
+    party is deliberately spawned at half HP so the recovery is
+    visible in the observation snapshot.
+    """
+
+    from src.core.shelter import RestPermission, RestRisk, ShelterZone
+
+    def populate(room: FixtureRoom, player: EntityId, party: list[EntityId]) -> None:
+        # Spawn a shelter zone covering the east half of the interior.
+        # Floor bounds: (1, 1, 9, 7) for an 11x9 room.
+        left = (room.floor_bounds[0] + room.floor_bounds[2]) // 2 + 1
+        top = room.floor_bounds[1]
+        right = room.floor_bounds[2]
+        bottom = room.floor_bounds[3]
+        room.world.shelter_zones.add(
+            ShelterZone(
+                zone_id="fixture_shelter",
+                left=left,
+                top=top,
+                width=right - left + 1,
+                height=bottom - top + 1,
+                rest_permission=RestPermission.BOTH,
+                rest_risk=RestRisk.NONE,
+                entry_message="You step into a calm shelter.",
+                exit_message="You leave the shelter behind.",
+                cost=0,
+                label="Fixture shelter",
+            )
+        )
+        # Halve each party member's HP so the long rest visibly heals
+        # them. Use ``max(1, ...)`` so we don't accidentally drop a
+        # member to 0 (which would trigger M29 unconscious once that
+        # lands).
+        for member in party:
+            stats = room.world.combat_stats.get(member)
+            if stats is None:
+                continue
+            stats.hit_points = max(1, stats.max_hit_points // 2)
+
+    return make_fixture_app(
+        width=11,
+        height=9,
+        rng=rng if rng is not None else _fixture_rng(),
+        populate=populate,
+        party_position=(2, 4),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Registry wiring
 # ---------------------------------------------------------------------------
@@ -539,6 +593,12 @@ _FIXTURES: tuple[tuple[str, str, Callable[[App], App], tuple[str, ...]], ...] = 
         "Rogue leader with a kobold five tiles east; M23 sneak/perception smoke.",
         _build_stealth_encounter,
         ("kobold",),
+    ),
+    (
+        "shelter_zone",
+        "Small room with one safe shelter on the east side; M34 rest exercise.",
+        _build_shelter_zone,
+        (),
     ),
 )
 

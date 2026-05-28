@@ -28,6 +28,7 @@ class UIMode(Enum):
     help = "help"
     message_pager = "message_pager"
     spell_menu = "spell_menu"
+    rest_menu = "rest_menu"
     quit_confirm = "quit_confirm"
     game_over = "game_over"
 
