@@ -168,7 +168,7 @@ def _presentation_for(
 def _party_glyph(entity: EntityId, party: Sequence[EntityId]) -> str | None:
     for index, party_entity in enumerate(party):
         if entity == party_entity:
-            return "@" if index == 0 else str(index)
+            return "@" if index == 0 else "#"
     return None
 
 

@@ -13,6 +13,12 @@ from src.core.modes import (
 from src.map.tiles import RUBBLE
 
 
+def move_extra_party_members_away(app) -> None:
+    for index, entity in enumerate(app.party[2:]):
+        app.world.positions.require(entity).x = 170 + index
+        app.world.positions.require(entity).y = 40
+
+
 def test_quit_prompt_and_cancel_flow_uses_effects() -> None:
     app = create_app()
     app.mode = NormalMode()
@@ -93,27 +99,29 @@ def test_yolo_choice_assigns_sheet_and_starts_game() -> None:
     assert app.messages.current.startswith("YOLO:")
 
 
-def test_app_starts_with_yolo_party_member_nearby() -> None:
+def test_app_starts_with_yolo_party_members_nearby() -> None:
     app = create_app()
-    companion = app.party[1]
     player_position = app.world.positions.require(app.player)
-    companion_position = app.world.positions.require(companion)
 
     assert app.party == app.world.controlled_entities()
-    assert companion != app.player
-    assert app.world.characters.has(companion)
-    assert app.world.combat_stats.has(companion)
-    assert app.world.weapons.has(companion)
-    assert max(
-        abs(companion_position.x - player_position.x),
-        abs(companion_position.y - player_position.y),
-    ) <= 7
+    assert len(app.party) == 4
+    for companion in app.party[1:]:
+        companion_position = app.world.positions.require(companion)
+        assert companion != app.player
+        assert app.world.characters.has(companion)
+        assert app.world.combat_stats.has(companion)
+        assert app.world.weapons.has(companion)
+        assert app.world.name_for(companion)
+        assert max(
+            abs(companion_position.x - player_position.x),
+            abs(companion_position.y - player_position.y),
+        ) <= 7
 
 
 def test_battle_mode_uses_space_to_rotate_active_party_focus() -> None:
     app = create_app()
     app.handle_key(ord("y"))
-    player, companion = app.party
+    player, companion = app.party[:2]
     frog = next(iter(app.world.creatures.values))
     for entity in list(app.world.creatures.values):
         if entity != frog:
@@ -145,6 +153,14 @@ def test_battle_mode_uses_space_to_rotate_active_party_focus() -> None:
 
     app.handle_key(ord(" "))
 
+    assert app.active_actor() == app.party[2]
+
+    app.handle_key(ord(" "))
+
+    assert app.active_actor() == app.party[3]
+
+    app.handle_key(ord(" "))
+
     assert app.active_actor() == player
     assert app.focus == player
 
@@ -152,7 +168,7 @@ def test_battle_mode_uses_space_to_rotate_active_party_focus() -> None:
 def test_turn_advance_resets_resources_without_dropping_grants() -> None:
     app = create_app()
     app.handle_key(ord("y"))
-    player, companion = app.party
+    player, companion = app.party[:2]
     frog = next(iter(app.world.creatures.values))
     for entity in list(app.world.creatures.values):
         if entity != frog:
@@ -299,7 +315,7 @@ def test_battle_move_is_denied_when_terrain_adjusted_cost_exceeds_remaining() ->
 def test_explore_mode_moves_freely_and_party_follows() -> None:
     app = create_app()
     app.handle_key(ord("y"))
-    player, companion = app.party
+    player, companion = app.party[:2]
     for entity in list(app.world.creatures.values):
         app.world.remove_entity(entity)
     app.world.positions.require(player).x = 160
@@ -319,7 +335,7 @@ def test_explore_mode_moves_freely_and_party_follows() -> None:
 def test_explore_mode_rubble_movement_is_intentionally_free() -> None:
     app = create_app()
     app.handle_key(ord("y"))
-    player, companion = app.party
+    player, companion = app.party[:2]
     for entity in list(app.world.creatures.values):
         app.world.remove_entity(entity)
     app.world.positions.require(player).x = 160
@@ -339,7 +355,7 @@ def test_explore_mode_rubble_movement_is_intentionally_free() -> None:
 def test_explore_mode_displaces_party_member() -> None:
     app = create_app()
     app.handle_key(ord("y"))
-    player, companion = app.party
+    player, companion = app.party[:2]
     for entity in list(app.world.creatures.values):
         app.world.remove_entity(entity)
     app.world.positions.require(player).x = 160
@@ -351,13 +367,13 @@ def test_explore_mode_displaces_party_member() -> None:
 
     assert app.world.positions.require(player).x == 159
     assert app.world.positions.require(companion).x == 160
-    assert app.messages.current == "You displaced companion."
+    assert app.messages.current == f"You displaced {app.world.name_for(companion)}."
 
 
 def test_player_can_enter_and_exit_voluntary_turn_mode_without_hostiles() -> None:
     app = create_app()
     app.handle_key(ord("y"))
-    player, companion = app.party
+    player, companion = app.party[:2]
     for entity in list(app.world.creatures.values):
         app.world.remove_entity(entity)
     app.sync_major_mode()
@@ -384,7 +400,7 @@ def test_player_can_enter_and_exit_voluntary_turn_mode_without_hostiles() -> Non
 def test_voluntary_turn_mode_uses_battle_movement_budget_without_enemies() -> None:
     app = create_app()
     app.handle_key(ord("y"))
-    player, companion = app.party
+    player, companion = app.party[:2]
     for entity in list(app.world.creatures.values):
         app.world.remove_entity(entity)
     app.world.positions.require(player).x = 160
@@ -513,7 +529,7 @@ def test_killing_last_hostile_switches_to_explore_mode() -> None:
 def test_battle_mode_displaces_party_member_and_spends_movement() -> None:
     app = create_app()
     app.handle_key(ord("y"))
-    player, companion = app.party
+    player, companion = app.party[:2]
     frog = next(iter(app.world.creatures.values))
     for entity in list(app.world.creatures.values):
         if entity != frog:
@@ -530,13 +546,13 @@ def test_battle_mode_displaces_party_member_and_spends_movement() -> None:
     assert app.world.positions.require(player).x == 159
     assert app.world.positions.require(companion).x == 160
     assert app.activation.movement_used == 3
-    assert app.messages.current == "You displaced companion."
+    assert app.messages.current == f"You displaced {app.world.name_for(companion)}."
 
 
 def test_battle_party_displacement_onto_rubble_spends_adjusted_cost() -> None:
     app = create_app()
     app.handle_key(ord("y"))
-    player, companion = app.party
+    player, companion = app.party[:2]
     frog = next(iter(app.world.creatures.values))
     for entity in list(app.world.creatures.values):
         if entity != frog:
@@ -612,7 +628,7 @@ def test_actor_can_still_move_after_attacking() -> None:
 def test_enemy_activation_uses_full_turn_after_party_round() -> None:
     app = create_app()
     app.handle_key(ord("y"))
-    player, companion = app.party
+    player, companion = app.party[:2]
     frog = next(iter(app.world.creatures.values))
     for entity in list(app.world.creatures.values):
         if entity != frog:
@@ -621,9 +637,10 @@ def test_enemy_activation_uses_full_turn_after_party_round() -> None:
     app.world.positions.require(player).y = 40
     app.world.positions.require(companion).x = 161
     app.world.positions.require(companion).y = 40
+    move_extra_party_members_away(app)
     app.world.positions.require(frog).x = 149
     app.world.positions.require(frog).y = 40
-    app.active_party_index = 1
+    app.active_party_index = len(app.party) - 1
 
     app.handle_key(ord(" "))
 
@@ -635,7 +652,7 @@ def test_enemy_activation_uses_full_turn_after_party_round() -> None:
 def test_enemy_activation_uses_default_budget_not_active_party_budget() -> None:
     app = create_app()
     app.handle_key(ord("y"))
-    player, companion = app.party
+    player, companion = app.party[:2]
     frog = next(iter(app.world.creatures.values))
     for entity in list(app.world.creatures.values):
         if entity != frog:
@@ -644,9 +661,10 @@ def test_enemy_activation_uses_default_budget_not_active_party_budget() -> None:
     app.world.positions.require(player).y = 40
     app.world.positions.require(companion).x = 161
     app.world.positions.require(companion).y = 40
+    move_extra_party_members_away(app)
     app.world.positions.require(frog).x = 149
     app.world.positions.require(frog).y = 40
-    app.active_party_index = 1
+    app.active_party_index = len(app.party) - 1
     app.activation.movement_total = 3
 
     app.handle_key(ord(" "))
@@ -658,7 +676,7 @@ def test_enemy_activation_uses_default_budget_not_active_party_budget() -> None:
 def test_enemy_step_feasibility_uses_terrain_adjusted_remaining_budget() -> None:
     app = create_app()
     app.handle_key(ord("y"))
-    player, companion = app.party
+    player, companion = app.party[:2]
     frog = next(iter(app.world.creatures.values))
     for entity in list(app.world.creatures.values):
         if entity != frog:
@@ -667,10 +685,11 @@ def test_enemy_step_feasibility_uses_terrain_adjusted_remaining_budget() -> None
     app.world.positions.require(player).y = 40
     app.world.positions.require(companion).x = 161
     app.world.positions.require(companion).y = 40
+    move_extra_party_members_away(app)
     app.world.positions.require(frog).x = 149
     app.world.positions.require(frog).y = 40
     app.world.tiles[40][159] = RUBBLE
-    app.active_party_index = 1
+    app.active_party_index = len(app.party) - 1
 
     app.handle_key(ord(" "))
 
@@ -681,7 +700,7 @@ def test_enemy_step_feasibility_uses_terrain_adjusted_remaining_budget() -> None
 def test_enemy_movement_spending_uses_terrain_adjusted_cost() -> None:
     app = create_app()
     app.handle_key(ord("y"))
-    player, companion = app.party
+    player, companion = app.party[:2]
     frog = next(iter(app.world.creatures.values))
     for entity in list(app.world.creatures.values):
         if entity != frog:
@@ -690,11 +709,12 @@ def test_enemy_movement_spending_uses_terrain_adjusted_cost() -> None:
     app.world.positions.require(player).y = 40
     app.world.positions.require(companion).x = 161
     app.world.positions.require(companion).y = 40
+    move_extra_party_members_away(app)
     app.world.positions.require(frog).x = 149
     app.world.positions.require(frog).y = 40
     for x in range(150, 160):
         app.world.tiles[40][x] = RUBBLE
-    app.active_party_index = 1
+    app.active_party_index = len(app.party) - 1
 
     app.handle_key(ord(" "))
 
