@@ -142,3 +142,15 @@ class Container:
     """
 
     is_open: bool = False
+
+
+@dataclass(slots=True)
+class GodMode:
+    """Debug-only marker: holder ignores incoming DamageEntity effects.
+
+    Set by the M33 debug `god on/off` command. Not persisted — save/load
+    will deliberately drop this so toggling god in a dev session never
+    leaks into a normal player's save.
+    """
+
+    enabled: bool = True

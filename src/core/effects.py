@@ -83,6 +83,56 @@ class RemoveBlocker:
     entity: EntityId
 
 
+# ---------------------------------------------------------------------------
+# Debug effects (M33)
+#
+# Only the dev-mode debug pipeline emits these. They route through the normal
+# EffectApplier so save/load and observation stay consistent, but no
+# gameplay system produces them. None of them persist any dev-only state
+# into save data — see `core.dump` and the GodMode component for the
+# explicit non-persistence comments.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class SetGodMode:
+    """Toggle the GodMode component on `entity`. enabled=False removes it."""
+
+    entity: EntityId
+    enabled: bool
+
+
+@dataclass(frozen=True, slots=True)
+class SpawnEntity:
+    """Spawn a catalog entity at (x, y).
+
+    `kind` is a key in `src.systems.debug_system.DEBUG_SPAWN_CATALOG`. The
+    applier is the only place that knows how to materialize each kind, so a
+    new dev spawn is a one-line catalog addition.
+    """
+
+    kind: str
+    x: int
+    y: int
+
+
+@dataclass(frozen=True, slots=True)
+class GrantGold:
+    """Add `amount` gold to `entity`'s inventory (which must exist)."""
+
+    entity: EntityId
+    amount: int
+
+
+@dataclass(frozen=True, slots=True)
+class GrantItem:
+    """Add `quantity` of `item_id` to `entity`'s inventory."""
+
+    entity: EntityId
+    item_id: str
+    quantity: int = 1
+
+
 Effect: TypeAlias = (
     MoveEntity
     | EmitMessage
@@ -97,4 +147,8 @@ Effect: TypeAlias = (
     | DisarmTrap
     | TriggerTrap
     | RemoveBlocker
+    | SetGodMode
+    | SpawnEntity
+    | GrantGold
+    | GrantItem
 )

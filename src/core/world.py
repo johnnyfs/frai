@@ -12,6 +12,7 @@ from src.core.components import (
     Door,
     Equipment,
     Faction,
+    GodMode,
     Inventory,
     Lock,
     Name,
@@ -89,6 +90,7 @@ class World:
     locks: ComponentStore[Lock] = field(default_factory=lambda: ComponentStore({}))
     traps: ComponentStore[Trap] = field(default_factory=lambda: ComponentStore({}))
     containers: ComponentStore[Container] = field(default_factory=lambda: ComponentStore({}))
+    god_modes: ComponentStore[GodMode] = field(default_factory=lambda: ComponentStore({}))
     clock: WorldTime = field(default_factory=WorldTime)
     schedule: Schedule = field(default_factory=Schedule)
 
@@ -149,6 +151,7 @@ class World:
             self.locks,
             self.traps,
             self.containers,
+            self.god_modes,
         ):
             store.values.pop(entity, None)
 
