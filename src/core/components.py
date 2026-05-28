@@ -248,3 +248,38 @@ class GodMode:
     """
 
     enabled: bool = True
+
+
+@dataclass(slots=True)
+class ExperiencePoints:
+    """Per-actor XP ledger (M25).
+
+    ``value`` is total XP accumulated; ``level`` mirrors the
+    :class:`CharacterSheet` level so the leveling system can detect the
+    "I crossed a threshold" moment without traversing every sheet on
+    every kill. Threshold tables are owned by
+    :mod:`src.core.leveling` so the data and the policy live in one
+    place.
+
+    Attached only to player-controlled / party entities. Enemies do
+    not carry an XP ledger today — their value is granted to the
+    party on kill. The component round-trips through save/load via
+    the dataclass-asdict fallback path in :mod:`src.core.world`.
+    """
+
+    value: int = 0
+    level: int = 1
+
+
+@dataclass(slots=True)
+class LevelUpAvailable:
+    """Marker that ``target_level`` is unlocked and waiting on a confirm (M25).
+
+    The component is attached when :class:`ExperiencePoints` crosses the
+    next threshold and is removed once the player confirms the level-up
+    via the level-up modal. Held in a separate component (rather than
+    folded onto :class:`ExperiencePoints`) so the renderer can ask
+    "anyone has a pending level-up?" without consulting XP math.
+    """
+
+    target_level: int

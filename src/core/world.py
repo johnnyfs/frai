@@ -15,10 +15,12 @@ from src.core.components import (
     Creature,
     Door,
     Equipment,
+    ExperiencePoints,
     Faction,
     GodMode,
     Inventory,
     InventoryStack,
+    LevelUpAvailable,
     Lock,
     LootDrop,
     Name,
@@ -131,6 +133,12 @@ class World:
     awareness_trackers: ComponentStore[AwarenessTracker] = field(
         default_factory=lambda: ComponentStore({})
     )
+    experience_points: ComponentStore[ExperiencePoints] = field(
+        default_factory=lambda: ComponentStore({})
+    )
+    level_up_pending: ComponentStore[LevelUpAvailable] = field(
+        default_factory=lambda: ComponentStore({})
+    )
     clock: WorldTime = field(default_factory=WorldTime)
     schedule: Schedule = field(default_factory=Schedule)
     shelter_zones: ShelterZoneRegistry = field(default_factory=ShelterZoneRegistry)
@@ -215,6 +223,8 @@ class World:
             ("npc_dialogues", self.npc_dialogues),
             ("boss_markers", self.boss_markers),
             ("awareness_trackers", self.awareness_trackers),
+            ("experience_points", self.experience_points),
+            ("level_up_pending", self.level_up_pending),
         ]
 
     def name_for(self, entity: EntityId) -> str:
@@ -485,6 +495,10 @@ def _component_from_dict(name: str, payload: Any) -> Any:
         return AggroOverrideList(overrides=entries)
     if name == "awareness_trackers":
         return AwarenessTracker.from_dict(payload if isinstance(payload, dict) else {})
+    if name == "experience_points":
+        return ExperiencePoints(**_filtered(ExperiencePoints, payload))
+    if name == "level_up_pending":
+        return LevelUpAvailable(**_filtered(LevelUpAvailable, payload))
     return None
 
 

@@ -12,6 +12,8 @@ from src.core.actions import (
     GameOverChoice,
     InteractAttempt,
     InventoryRequest,
+    LevelUpConfirm,
+    LevelUpDismiss,
     MoveAttempt,
     PerceptionAttempt,
     PickupAttempt,
@@ -166,6 +168,18 @@ def map_key(
             return QuitConfirm(True)
         if key_name == "n":
             return QuitConfirm(False)
+        return None
+
+    if ui_mode is UIMode.level_up:
+        # Level-up modal: ``y`` / ``Enter`` confirms the level-up;
+        # ``q`` / ``Esc`` dismisses without applying (the marker
+        # stays attached so the modal reopens on the next cue). The
+        # confirm path produces a LevelUpConfirm carrying the player
+        # entity — the App resolves which party member is pending.
+        if key_name in ("y", " ") or key in (10, 13):
+            return LevelUpConfirm(actor=player)
+        if key_name == "q" or key == 27:
+            return LevelUpDismiss(actor=player)
         return None
 
     return None

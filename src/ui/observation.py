@@ -109,6 +109,10 @@ class ActorSummary:
     conditions: tuple[ConditionSummary, ...] = ()
     spells: tuple[str, ...] = ()
     spell_slots: tuple[SpellSlotSummary, ...] = ()
+    level: int = 1
+    xp: int = 0
+    xp_to_next: int | None = None
+    level_up_pending: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -314,6 +318,10 @@ def _actor_to_dict(actor: ActorSummary | None) -> dict[str, Any] | None:
             {"level": s.level, "remaining": s.remaining, "maximum": s.maximum}
             for s in actor.spell_slots
         ],
+        "level": actor.level,
+        "xp": actor.xp,
+        "xp_to_next": actor.xp_to_next,
+        "level_up_pending": actor.level_up_pending,
     }
 
 
@@ -339,6 +347,16 @@ def _actor_from_dict(payload: dict[str, Any] | None) -> ActorSummary | None:
                 maximum=int(item["maximum"]),
             )
             for item in payload.get("spell_slots", [])
+        ),
+        level=int(payload.get("level", 1)),
+        xp=int(payload.get("xp", 0)),
+        xp_to_next=(
+            int(payload["xp_to_next"]) if payload.get("xp_to_next") is not None else None
+        ),
+        level_up_pending=(
+            int(payload["level_up_pending"])
+            if payload.get("level_up_pending") is not None
+            else None
         ),
     )
 
@@ -506,6 +524,8 @@ def _build_actor_summary(app: Any, entity: EntityId) -> ActorSummary | None:
         max_hp = 0
     faction = world.factions.get(entity)
     presentation = world.presentations.get(entity)
+    level, xp, xp_to_next = _level_xp_for_actor(world, entity)
+    pending = _pending_level_for_actor(world, entity)
     return ActorSummary(
         id=int(entity),
         name=world.name_for(entity),
@@ -517,7 +537,49 @@ def _build_actor_summary(app: Any, entity: EntityId) -> ActorSummary | None:
         conditions=_conditions_for_actor(world, entity),
         spells=_spells_for_actor(world, entity),
         spell_slots=_spell_slots_for_actor(world, entity),
+        level=level,
+        xp=xp,
+        xp_to_next=xp_to_next,
+        level_up_pending=pending,
     )
+
+
+def _level_xp_for_actor(world: Any, entity: EntityId) -> tuple[int, int, int | None]:
+    """Return ``(level, xp, xp_to_next)`` for the actor (M25).
+
+    ``level`` mirrors the character sheet's level; ``xp`` is the current
+    XP total (zero for non-PCs); ``xp_to_next`` is the XP needed to
+    reach the next known level threshold (``None`` once the actor is at
+    the engine's max level).
+    """
+
+    from src.core.leveling import next_threshold
+
+    character = getattr(world, "characters", None)
+    sheet_component = character.get(entity) if character is not None else None
+    level = sheet_component.sheet.level if sheet_component is not None else 1
+    xp_store = getattr(world, "experience_points", None)
+    xp_component = xp_store.get(entity) if xp_store is not None else None
+    xp = xp_component.value if xp_component is not None else 0
+    threshold = next_threshold(level)
+    return level, xp, threshold
+
+
+def _pending_level_for_actor(world: Any, entity: EntityId) -> int | None:
+    """Return the pending ``target_level`` for the actor, or ``None``.
+
+    Surfaces the M25 :class:`LevelUpAvailable` marker so an agentic
+    playtester can detect "the level-up modal will open" without
+    inspecting component stores directly.
+    """
+
+    pending_store = getattr(world, "level_up_pending", None)
+    if pending_store is None:
+        return None
+    pending = pending_store.get(entity)
+    if pending is None:
+        return None
+    return pending.target_level
 
 
 def _spells_for_actor(world: Any, entity: EntityId) -> tuple[str, ...]:
@@ -796,6 +858,10 @@ def _available_actions(
     if ui_mode is UIMode.rest_menu:
         # M34: rest menu accepts a kind pick (short / long) or cancel.
         return ["rest_menu.short", "rest_menu.long", "rest_menu.cancel"]
+    if ui_mode is UIMode.level_up:
+        # M25: level-up modal accepts confirm or dismiss only; the
+        # play-screen action set is hidden while the modal is up.
+        return ["level_up.confirm", "level_up.dismiss"]
     if ui_mode is not UIMode.play or active is None:
         return []
 
@@ -951,6 +1017,25 @@ def _modal_snapshot(app: Any) -> ModalSnapshot | None:
         # produces the refusal banner on an unsupported pick so the
         # agent learns the constraint by trying it.
         return ModalSnapshot(kind="rest_menu", options=["short", "long", "cancel"])
+    if ui_mode is UIMode.level_up:
+        # M25: surface the pending member, target level, and confirm
+        # verbs. An agentic playtester reads ``target=<id>:level=<n>``
+        # from the options list to plan its next confirm.
+        options = ["confirm", "dismiss"]
+        world = getattr(app, "world", None)
+        party = getattr(app, "party", None)
+        if world is not None and party is not None:
+            members = getattr(party, "members", [])
+            for member in members:
+                pending = world.level_up_pending.get(member)
+                if pending is None:
+                    continue
+                name = world.name_for(member)
+                options.append(f"target={int(member)}")
+                options.append(f"name={name}")
+                options.append(f"level={pending.target_level}")
+                break
+        return ModalSnapshot(kind="level_up", options=options)
     # Future modal kinds (examine, help) just report the kind;
     # option content will be filled in as those land.
     return ModalSnapshot(kind=ui_mode.value, options=[])

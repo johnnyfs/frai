@@ -13,7 +13,7 @@ hook that connects the town, the dungeon, and the boss.
 | 1    | Town (tavern)       | Captain Tane offers the quest. Choose "Yes, I'll take it." to accept.                               |
 | 2    | Dungeon Level 3     | Defeat the kobold warlord (boss creature, glyph `K`). His corpse drops the golden chalice.          |
 | 3    | Anywhere            | Pick up the golden chalice (press `,` on the corpse tile). The quest flips to **completed**.        |
-| 4    | (automatic)         | Each party member receives 100 gold; the log records a 200 XP reward (XP wiring lands with M25).    |
+| 4    | (automatic)         | Each party member receives 100 gold and 200 XP; the level-up modal pops if the threshold is crossed (M25). |
 
 The completion check fires the instant both conditions hold. Picking
 up the chalice off the corpse triggers it because the corpse loot

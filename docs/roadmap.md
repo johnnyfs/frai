@@ -97,7 +97,7 @@ Architecture direction:
 | M22 | Pathing / auto-walk                                | M3, M7, M19                 | #62               | complete   |
 | M23 | Stealth, noise, and perception                     | M4, M19, M26, M28           | #25               | in review  |
 | M24 | Conditions, statuses, and durations                | M4, M27                     | #66               | complete   |
-| M25 | Leveling, XP, and rewards                          | M5, M10, M14                | #27               | unassigned |
+| M25 | Leveling, XP, and rewards                          | M5, M10, M14                | #27               | in review  |
 | M26 | Skill checks and DC checks                         | M5                          | #50               | complete   |
 | M27 | Time and clocks                                    | M4                          | #49               | complete   |
 | M28 | Faction and hostility model                        | M3, M6, M13                 | #72               | complete   |

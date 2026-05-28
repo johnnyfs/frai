@@ -115,6 +115,10 @@ def render(
         _render_dialogue(screen, layout, world, dialogue)
         return
 
+    if ui_mode is UIMode.level_up:
+        _render_level_up(screen, layout, world, party)
+        return
+
     screen.print_line(
         layout.message_y,
         _message_line(messages),
@@ -427,6 +431,108 @@ def _render_dialogue(
             "[Press Enter or Esc to close]",
         )
         _line(screen, layout, layout.status_y, "Enter/Esc close")
+    screen.refresh()
+
+
+def _render_level_up(
+    screen: Screen,
+    layout: Layout,
+    world: World,
+    party: Sequence[EntityId],
+) -> None:
+    """Render the M25 level-up modal.
+
+    Shows the first party member with a pending :class:`LevelUpAvailable`
+    plus the previews the player needs to make an informed confirm:
+    current → projected HP, projected proficiency, and any new spell
+    slots their class unlocks at the target level. The actual
+    application happens in the :class:`LevelUp` effect handler — this
+    is pure projection, no world mutation.
+    """
+
+    from src.core.character_creation import class_by_name
+    from src.core.combat import proficiency_bonus_for_level
+    from src.core.leveling import hp_gain_for_level_up, slot_progression_for
+
+    target_member: EntityId | None = None
+    target_level = 1
+    for member in party:
+        pending = world.level_up_pending.get(member)
+        if pending is not None:
+            target_member = member
+            target_level = pending.target_level
+            break
+
+    _line(screen, layout, layout.message_y, "Level Up")
+    if target_member is None:
+        _line(
+            screen,
+            layout,
+            layout.map_top + 3,
+            "(No pending level-up; press q to close.)",
+        )
+        _line(screen, layout, layout.status_y, "y confirm, q/Esc dismiss")
+        screen.refresh()
+        return
+
+    name = world.name_for(target_member)
+    character = world.characters.get(target_member)
+    character_class = (
+        character.sheet.character_class if character is not None else "?"
+    )
+    class_option = class_by_name(character_class)
+    stats = world.combat_stats.get(target_member)
+    constitution = stats.constitution if stats is not None else 10
+    hit_die = class_option.hit_die if class_option is not None else 8
+    hp_gain = hp_gain_for_level_up(hit_die, constitution)
+    new_max_hp = (stats.max_hit_points if stats is not None else 0) + hp_gain
+    new_proficiency = proficiency_bonus_for_level(target_level)
+    progression = slot_progression_for(character_class, target_level)
+
+    _line(
+        screen,
+        layout,
+        layout.map_top,
+        f"{name} ({character_class}) reaches level {target_level}!",
+    )
+    _line(screen, layout, layout.map_top + 1, "-" * layout.playfield_width)
+    if stats is not None:
+        _line(
+            screen,
+            layout,
+            layout.map_top + 3,
+            f"HP: {stats.max_hit_points} -> {new_max_hp} (+{hp_gain})",
+        )
+        _line(
+            screen,
+            layout,
+            layout.map_top + 4,
+            f"Proficiency: +{stats.proficiency_bonus} -> +{new_proficiency}",
+        )
+    if progression:
+        slot_summary = ", ".join(
+            f"L{level}: {maximum}" for level, maximum in sorted(progression.items())
+        )
+        _line(
+            screen,
+            layout,
+            layout.map_top + 6,
+            f"Spell slots: {slot_summary}",
+        )
+    else:
+        _line(
+            screen,
+            layout,
+            layout.map_top + 6,
+            "Spell slots: (no change)",
+        )
+    _line(
+        screen,
+        layout,
+        layout.map_top + 8,
+        "Press y / Enter to confirm. q / Esc dismisses.",
+    )
+    _line(screen, layout, layout.status_y, "y confirm, q/Esc dismiss")
     screen.refresh()
 
 
