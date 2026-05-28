@@ -72,6 +72,8 @@ def _iter_component_stores(world: World):
         "locks",
         "traps",
         "containers",
+        "corpses",
+        "loot_drops",
         "god_modes",
     ):
         store = getattr(world, name, None)

@@ -26,7 +26,15 @@ from src.core.effects import (
 )
 from src.core.effects_applier import EffectApplier
 from src.core.entity import EntityId
-from src.core.actions import EndTurn, InteractAttempt, MoveAttempt, ToggleTurnMode
+from src.core.actions import (
+    Action,
+    DropItemAttempt,
+    EndTurn,
+    InteractAttempt,
+    MoveAttempt,
+    PickupAttempt,
+    ToggleTurnMode,
+)
 from src.core.autowalk import (
     AutowalkRequest,
     InterruptReason,
@@ -50,6 +58,7 @@ from src.systems.ai_system import EnemyAISystem
 from src.systems.awareness_system import hostiles_requiring_battle
 from src.systems.combat_system import CombatSystem
 from src.systems.interaction_system import InteractionSystem
+from src.systems.loot_system import LootSystem
 from src.systems.message_system import MessageState
 from src.systems.movement_system import (
     MovementContextResolver,
@@ -89,6 +98,7 @@ class App:
     # ``step_autowalk`` predicate fires. This is transient state and is
     # never persisted — save/load drops any in-progress walk.
     autowalk: AutowalkRequest | None = None
+    loot_rng: random.Random = field(default_factory=random.Random)
     effect_applier: EffectApplier = field(init=False)
 
     def __post_init__(self) -> None:
@@ -268,6 +278,22 @@ class App:
                 self.autowalk = AutowalkRequest(direction=direction)
                 self._run_autowalk()
                 return
+        # The `d` drop key (M30) is resolved here in inventory mode
+        # because picking the dropped stack requires reading the
+        # actor's inventory.
+        if self.ui_mode is UIMode.inventory and 0 <= key <= 255:
+            try:
+                pressed = chr(key).lower()
+            except ValueError:
+                pressed = ""
+            if pressed == "d":
+                drop_action = self._resolve_inventory_drop_key()
+                if drop_action is not None:
+                    self.apply_effects(self._handle_pickup_or_drop(drop_action))
+                else:
+                    self.apply_effects([EmitMessage("Nothing to drop.")])
+                self.sync_play_mode()
+                return
         action = map_key(
             key,
             self.ui_mode,
@@ -287,6 +313,22 @@ class App:
                 action = InteractAttempt(action.actor, self.facing[0], self.facing[1], action.check_result)
             self.apply_effects(self._handle_interaction(action))
             if not is_turn_based_play(self.turn.play_mode):
+                self._tick_world_clock(SECONDS_PER_TURN)
+            self.sync_play_mode()
+            return
+        if isinstance(action, PickupAttempt) and self.ui_mode is UIMode.play:
+            self.apply_effects(self._handle_pickup_or_drop(action))
+            if not is_turn_based_play(self.turn.play_mode):
+                self._tick_world_clock(SECONDS_PER_TURN)
+            self.sync_play_mode()
+            return
+        if isinstance(action, DropItemAttempt):
+            # Drop is legal from both play and inventory modals. In
+            # turn-based play it consumes the actor's action like a pickup.
+            self.apply_effects(self._handle_pickup_or_drop(action))
+            if self.ui_mode is UIMode.play and not is_turn_based_play(
+                self.turn.play_mode
+            ):
                 self._tick_world_clock(SECONDS_PER_TURN)
             self.sync_play_mode()
             return
@@ -324,6 +366,51 @@ class App:
 
     def _handle_interaction(self, action: InteractAttempt) -> list[Effect]:
         if is_turn_based_play(self.turn.play_mode):
+            if self.turn.active_activation.action_used:
+                return [EmitMessage("Action already used.")]
+            effects = self.dispatcher.dispatch(action, self.world)
+            self.turn.consume_action()
+            return effects
+        return self.dispatcher.dispatch(action, self.world)
+
+    def _resolve_inventory_drop_key(self) -> DropItemAttempt | None:
+        """Choose what the active actor drops when `d` is pressed in inventory.
+
+        MVP behavior: drop the first non-equipped stack (quantity 1).
+        When a cursor-driven inventory modal lands (follow-up issue) this
+        helper can be deleted; until then it gives the player a path to
+        get rid of an item without leaving the modal.
+        """
+        actor = self.active_actor()
+        inventory = self.world.inventories.get(actor)
+        if inventory is None or not inventory.items:
+            return None
+        equipment = self.world.equipment.get(actor)
+        equipped: set[str] = set()
+        if equipment is not None:
+            for item_id in (equipment.weapon_item_id, equipment.armor_item_id):
+                if item_id is not None:
+                    equipped.add(item_id)
+        for stack in inventory.items:
+            if stack.item_id in equipped:
+                continue
+            return DropItemAttempt(
+                actor=actor, item_id=stack.item_id, quantity=1
+            )
+        return None
+
+    def _handle_pickup_or_drop(self, action: Action) -> list[Effect]:
+        """Dispatch pickup/drop, consuming the action in turn-based play.
+
+        Pickup and drop share the same action-economy contract as
+        interact: they cost the actor's action when the party is in
+        turn-based play, and are free in explore mode (the M22 / M49
+        explore tick happens in ``handle_key``).
+        """
+        if (
+            self.ui_mode is UIMode.play
+            and is_turn_based_play(self.turn.play_mode)
+        ):
             if self.turn.active_activation.action_used:
                 return [EmitMessage("Action already used.")]
             effects = self.dispatcher.dispatch(action, self.world)
@@ -523,11 +610,13 @@ def create_app(
             CharacterCreationSystem(),
             QuitSystem(),
             InteractionSystem(rng=interaction_rng),
+            LootSystem(),
             movement,
             combat,
         ]
     )
     party_state = PartyState.from_members(party)
+    loot_rng = rng if rng is not None else random.Random()
     game_state = GameState(
         world=built.world,
         party=party_state,
@@ -550,6 +639,7 @@ def create_app(
         game_state=game_state,
         player=built.player,
         dispatcher=dispatcher,
+        loot_rng=loot_rng,
     )
 
 

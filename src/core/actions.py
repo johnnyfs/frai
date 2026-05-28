@@ -73,6 +73,32 @@ class InteractAttempt:
     check_result: int | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class PickupAttempt:
+    """Actor tries to pick up everything on their tile (M30).
+
+    Resolution scans for any non-actor entity at the actor's position
+    that owns an ``Inventory`` (corpses, dropped items, chests left
+    open) and transfers contents into the actor's inventory.
+    """
+
+    actor: EntityId
+
+
+@dataclass(frozen=True, slots=True)
+class DropItemAttempt:
+    """Actor drops ``quantity`` of ``item_id`` to their tile (M30).
+
+    ``item_id`` is None to drop ``gold`` instead — the gold field is
+    used only when ``item_id is None``.
+    """
+
+    actor: EntityId
+    item_id: str | None
+    quantity: int = 1
+    gold: int = 0
+
+
 Action: TypeAlias = (
     MoveAttempt
     | QuitRequest
@@ -86,4 +112,6 @@ Action: TypeAlias = (
     | EndTurn
     | ToggleTurnMode
     | InteractAttempt
+    | PickupAttempt
+    | DropItemAttempt
 )
