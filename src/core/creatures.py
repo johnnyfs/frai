@@ -91,6 +91,39 @@ CREATURES: dict[str, CreatureSpec] = {
             )
         ),
     ),
+    # M14 quest boss. Sized for a level-1 party of four with starter
+    # gear: HP and AC high enough to be a real fight, weapon strong
+    # enough to threaten downs, drop table guaranteed to give the
+    # golden chalice (the quest treasure) plus a stash of gold for
+    # flavor. Spawned in the entry room of dungeon level 3 by the
+    # world skeleton.
+    "boss_kobold_warlord": CreatureSpec(
+        key="boss_kobold_warlord",
+        name="kobold warlord",
+        glyph="K",
+        attack_verb="cleaves",
+        stats=CombatStats(
+            armor_class=16,
+            hit_points=40,
+            max_hit_points=40,
+            strength=15,
+            dexterity=13,
+            constitution=14,
+            proficiency_bonus=3,
+        ),
+        weapon=Weapon("greataxe", 12, "slashing", ability="STR"),
+        loot=DropTable(
+            entries=(
+                GoldDrop(amount_min=40, amount_max=80),
+                ItemDrop(
+                    item_id="treasure.golden_chalice",
+                    probability=1.0,
+                    quantity_min=1,
+                    quantity_max=1,
+                ),
+            )
+        ),
+    ),
 }
 
 

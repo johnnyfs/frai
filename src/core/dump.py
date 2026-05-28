@@ -79,6 +79,9 @@ def _iter_component_stores(world: World):
         "spell_slots",
         "spell_lists",
         "aggro_overrides",
+        "npcs",
+        "npc_dialogues",
+        "boss_markers",
     ):
         store = getattr(world, name, None)
         if store is not None:

@@ -7,6 +7,7 @@ from src.core.components import (
     AIBehaviorType,
     Armor,
     BlocksMovement,
+    BossMarker,
     Character,
     CombatStats,
     Container,
@@ -122,6 +123,9 @@ class World:
     npc_dialogues: ComponentStore[NPCDialogue] = field(
         default_factory=lambda: ComponentStore({})
     )
+    boss_markers: ComponentStore[BossMarker] = field(
+        default_factory=lambda: ComponentStore({})
+    )
     clock: WorldTime = field(default_factory=WorldTime)
     schedule: Schedule = field(default_factory=Schedule)
 
@@ -202,6 +206,7 @@ class World:
             ("aggro_overrides", self.aggro_overrides),
             ("npcs", self.npcs),
             ("npc_dialogues", self.npc_dialogues),
+            ("boss_markers", self.boss_markers),
         ]
 
     def name_for(self, entity: EntityId) -> str:
@@ -356,6 +361,8 @@ def _component_to_dict(component: Any) -> Any:
         return {"kind": component.kind.value}
     if isinstance(component, NPCDialogue):
         return {"tree": component.tree.to_dict()}
+    if isinstance(component, BossMarker):
+        return {"token": component.token}
     if is_dataclass(component):
         return asdict(component)
     # Fallback: best-effort string conversion. Should never trip in
@@ -445,6 +452,9 @@ def _component_from_dict(name: str, payload: Any) -> Any:
     if name == "npc_dialogues":
         tree_payload = payload.get("tree", {}) if isinstance(payload, dict) else {}
         return NPCDialogue(tree=DialogueTree.from_dict(tree_payload))
+    if name == "boss_markers":
+        token = str(payload.get("token", "")) if isinstance(payload, dict) else ""
+        return BossMarker(token=token)
     if name == "aggro_overrides":
         entries: list[AggroOverride] = []
         for entry in payload.get("overrides", []) if isinstance(payload, dict) else []:

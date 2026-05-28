@@ -46,6 +46,8 @@ from src.testing.fixtures._helpers import (
     spawn_info_npc,
     spawn_kobold,
     spawn_kobold_archer,
+    spawn_quest_boss,
+    spawn_quest_giver,
     spawn_recruit_npc,
     spawn_shopkeeper,
     spawn_trap,
@@ -387,6 +389,49 @@ def _build_open_terrain(_app: App, rng: random.Random | None = None) -> App:
     )
 
 
+def _build_quest_path(_app: App, rng: random.Random | None = None) -> App:
+    """M14 quest path: Captain Tane east, boss + chalice west.
+
+    A single room with the quest giver one tile east and the kobold
+    warlord (boss) three tiles west. The harness can drive the full
+    vertical slice end-to-end: walk east, press ``e`` to talk to Tane,
+    accept the quest, walk west, attack the boss, walk onto the
+    corpse, and press ``,`` to pick up the chalice. After the pickup
+    the quest log should be ``completed`` and the message log carries
+    the reward announcement.
+    """
+
+    from src.core.quest import SUNKEN_GATE_QUEST_ID
+
+    def populate(room: FixtureRoom, player: EntityId, party: list[EntityId]) -> None:
+        px, py = (
+            room.world.positions.require(player).x,
+            room.world.positions.require(player).y,
+        )
+        tane_tile = (px + 2, py)
+        boss_tile = (px - 3, py)
+        clear_tiles_for_spawn(
+            room.world,
+            tiles=(tane_tile, boss_tile),
+            movable=tuple(party[1:]),
+            bounds=room.floor_bounds,
+            avoid=((px, py),),
+        )
+        spawn_quest_giver(
+            room.world,
+            *tane_tile,
+            name="Captain Tane",
+            quest_id=SUNKEN_GATE_QUEST_ID,
+            pitch=(
+                "A kobold warlord rules the deeps. Kill him, bring "
+                "back the chalice. Will you help?"
+            ),
+        )
+        spawn_quest_boss(room.world, *boss_tile)
+
+    return make_fixture_app(rng=rng if rng is not None else _fixture_rng(), populate=populate)
+
+
 # ---------------------------------------------------------------------------
 # Registry wiring
 # ---------------------------------------------------------------------------
@@ -460,6 +505,12 @@ _FIXTURES: tuple[tuple[str, str, Callable[[App], App], tuple[str, ...]], ...] = 
         "Wizard leader plus two kobolds in spell range; M11 cast path smoke.",
         _build_spell_encounter,
         ("kobold", "kobold"),
+    ),
+    (
+        "quest_path",
+        "M14 vertical slice: Captain Tane (east) + kobold warlord (west).",
+        _build_quest_path,
+        ("Captain Tane", "kobold warlord"),
     ),
 )
 

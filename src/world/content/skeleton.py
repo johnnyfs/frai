@@ -8,10 +8,12 @@ from src.core.character_creation import CharacterSheet
 from src.core.combat import combat_stats_for_sheet, starter_armor_for_class, starter_weapon_for_class
 from src.core.components import (
     BlocksMovement,
+    BossMarker,
     Character,
     Equipment,
     Faction,
     Inventory,
+    LootDrop,
     Name,
     NPC,
     NPCDialogue,
@@ -21,10 +23,17 @@ from src.core.components import (
     Presentation,
     Shop,
 )
-from src.core.dialogue import info_tree, recruit_tree, shopkeeper_tree
+from src.core.creatures import (
+    combat_stats_for_creature,
+    creature_component,
+    creature_for_key,
+    weapon_for_creature,
+)
+from src.core.dialogue import info_tree, quest_offer_tree, recruit_tree, shopkeeper_tree
 from src.core.entity import EntityId
 from src.core.factions import FactionId
 from src.core.items import add_item, armor_item_id_for_name, weapon_item_id_for_name
+from src.core.quest import SUNKEN_GATE_QUEST_ID
 from src.core.world import World
 from src.map.tiles import DUNGEON_FLOOR, FOREST, GRASS, ROAD, TOWN_FLOOR, WATER, Tile
 
@@ -145,6 +154,7 @@ def build_world_skeleton(
     world.factions.add(player, Faction(FactionId.PLAYER_PARTY.value))
 
     _populate_town(world, _location_by_id(locations, "town"))
+    _populate_dungeon_boss(world, _location_by_id(locations, "dungeon_level_3"))
 
     return BuiltWorldSkeleton(
         world=world,
@@ -316,12 +326,13 @@ def _location_by_id(locations: tuple[LocationSpec, ...], location_id: str) -> Lo
 
 
 def _populate_town(world: World, town: LocationSpec) -> None:
-    """Spawn the three M13 town NPCs around the town anchor.
+    """Spawn the three M13 town NPCs around the town anchor (M13).
 
     Placement is deterministic: the info NPC sits one tile west of the
     anchor, the shopkeeper one tile east, and the recruitable adventurer
-    one tile south. The town bounds are large enough that all three
-    cells are inside the town rect for the minimum-skeleton size.
+    one tile south. Captain Tane (the M14 quest giver) sits in the
+    south-east of the town rect — the tavern corner — so the player
+    encounters him after walking past the other townsfolk.
     """
 
     # Positions are picked inside the town rect but away from the
@@ -335,6 +346,8 @@ def _populate_town(world: World, town: LocationSpec) -> None:
     shop_y = bounds.top + 2
     recruit_x = bounds.left + 2
     recruit_y = bounds.bottom - 2
+    tavern_x = bounds.right - 2
+    tavern_y = bounds.bottom - 2
     _spawn_info_npc(
         world,
         info_x,
@@ -361,6 +374,28 @@ def _populate_town(world: World, town: LocationSpec) -> None:
             "I can swing for coin if you'll have me. Join up?"
         ),
         accept_text="Then you have my blade. Lead on.",
+    )
+    _spawn_quest_giver(
+        world,
+        tavern_x,
+        tavern_y,
+        name="Captain Tane",
+        quest_id=SUNKEN_GATE_QUEST_ID,
+        pitch=(
+            "I'm Captain Tane, late of the Watch. A kobold warlord has "
+            "made the Sunken Gate his throne. He hoards a chalice the "
+            "old chapel will pay dearly to see returned. Kill him, "
+            "bring back the chalice -- 100 gold and the chapel's "
+            "gratitude await. Will you help?"
+        ),
+        accept_response=(
+            "Good. The Sunken Gate lies east, past the forest. The "
+            "deepest level is where you'll find him."
+        ),
+        decline_response=(
+            "Come find me when you change your mind. The chalice "
+            "won't wait forever."
+        ),
     )
 
 
@@ -500,6 +535,77 @@ def _spawn_recruit_npc(
         Equipment(weapon_item_id=weapon_item_id, armor_item_id=armor_item_id),
     )
     return entity
+
+
+def _spawn_quest_giver(
+    world: World,
+    x: int,
+    y: int,
+    *,
+    name: str,
+    quest_id: str,
+    pitch: str,
+    accept_response: str,
+    decline_response: str,
+) -> EntityId:
+    """Spawn a tavern quest-giver NPC (M14).
+
+    Mirrors the info NPC plumbing but uses
+    :func:`quest_offer_tree` so the dialogue carries an
+    :class:`AcceptQuestEffect` keyed on ``quest_id``. The NPC kind
+    stays :class:`NPCKind.INFO` for now -- ``QUEST_GIVER`` is a
+    future-content tag, not gameplay state, and adding the enum
+    member here would ripple into observation / debug tooling that
+    has no use for the distinction yet.
+    """
+
+    entity = world.create_entity()
+    world.positions.add(entity, Position(x=x, y=y))
+    world.presentations.add(entity, Presentation("@"))
+    world.names.add(entity, Name(name))
+    world.factions.add(entity, Faction("town"))
+    world.blockers.add(entity, BlocksMovement("occupied"))
+    world.npcs.add(entity, NPC(kind=NPCKind.INFO))
+    world.npc_dialogues.add(
+        entity,
+        NPCDialogue(
+            tree=quest_offer_tree(
+                speaker_id=name,
+                quest_id=quest_id,
+                pitch=pitch,
+                accept_response=accept_response,
+                decline_response=decline_response,
+            )
+        ),
+    )
+    return entity
+
+
+def _populate_dungeon_boss(world: World, level: LocationSpec) -> None:
+    """Spawn the M14 quest boss in dungeon level 3 entry room.
+
+    Placement is deterministic — one tile east of the level anchor,
+    inside the level rect. The boss is a kobold warlord (see
+    :data:`src.core.creatures.CREATURES`) carrying the
+    :class:`BossMarker` token the quest objective matches against
+    plus a guaranteed-chalice drop table.
+    """
+
+    spec = creature_for_key("boss_kobold_warlord")
+    x = min(level.anchor.x + 1, level.bounds.right - 1)
+    y = level.anchor.y
+    entity = world.create_entity()
+    world.positions.add(entity, Position(x=x, y=y))
+    world.presentations.add(entity, Presentation(spec.glyph))
+    world.blockers.add(entity, BlocksMovement("occupied"))
+    world.names.add(entity, Name(spec.name))
+    world.creatures.add(entity, creature_component(spec))
+    world.factions.add(entity, Faction(FactionId.DUNGEON.value))
+    world.combat_stats.add(entity, combat_stats_for_creature(spec))
+    world.weapons.add(entity, weapon_for_creature(spec))
+    if spec.loot.entries:
+        world.loot_drops.add(entity, LootDrop(table=spec.loot))
+    world.boss_markers.add(entity, BossMarker(token="sunken_gate_warlord"))
 
 
 def _add_water_border(world: World) -> None:

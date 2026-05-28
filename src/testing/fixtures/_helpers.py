@@ -648,6 +648,91 @@ def spawn_recruit_npc(
     return entity
 
 
+def spawn_quest_giver(
+    world: World,
+    x: int,
+    y: int,
+    *,
+    name: str,
+    quest_id: str,
+    pitch: str,
+    accept_response: str = "Then go, and may you return.",
+    decline_response: str = "Suit yourself.",
+) -> EntityId:
+    """Add an NPC carrying a :func:`quest_offer_tree` (M14).
+
+    Mirrors :func:`spawn_info_npc` but the dialogue carries an
+    ``AcceptQuestEffect`` keyed on ``quest_id``. Used by the
+    ``quest_path`` playtest fixture.
+
+    Raises :class:`RuntimeError` if ``(x, y)`` is already occupied.
+    """
+    from src.core.components import NPC, NPCDialogue, NPCKind
+    from src.core.dialogue import quest_offer_tree
+
+    _require_open_spawn_tile(world, x, y, "quest giver")
+    entity = world.create_entity()
+    world.positions.add(entity, Position(x=x, y=y))
+    world.presentations.add(entity, Presentation("@"))
+    world.names.add(entity, Name(name))
+    world.factions.add(entity, Faction("town"))
+    world.blockers.add(entity, BlocksMovement("occupied"))
+    world.npcs.add(entity, NPC(kind=NPCKind.INFO))
+    world.npc_dialogues.add(
+        entity,
+        NPCDialogue(
+            tree=quest_offer_tree(
+                speaker_id=name,
+                quest_id=quest_id,
+                pitch=pitch,
+                accept_response=accept_response,
+                decline_response=decline_response,
+            )
+        ),
+    )
+    return entity
+
+
+def spawn_quest_boss(
+    world: World,
+    x: int,
+    y: int,
+    *,
+    boss_marker_token: str = "sunken_gate_warlord",
+    creature_key: str = "boss_kobold_warlord",
+) -> EntityId:
+    """Add the M14 quest boss with marker + loot table.
+
+    Uses the catalogue :class:`CreatureSpec` for ``creature_key`` so
+    the stats / weapon / drop table stay aligned with the live world
+    skeleton. A :class:`BossMarker` with ``boss_marker_token`` is
+    attached so the kill hook can credit the quest.
+    """
+    from src.core.components import BossMarker, LootDrop
+    from src.core.creatures import (
+        combat_stats_for_creature,
+        creature_component,
+        creature_for_key,
+        weapon_for_creature,
+    )
+
+    _require_open_spawn_tile(world, x, y, "quest boss")
+    spec = creature_for_key(creature_key)
+    entity = world.create_entity()
+    world.positions.add(entity, Position(x=x, y=y))
+    world.presentations.add(entity, Presentation(spec.glyph))
+    world.blockers.add(entity, BlocksMovement("occupied"))
+    world.names.add(entity, Name(spec.name))
+    world.creatures.add(entity, creature_component(spec))
+    world.factions.add(entity, Faction("dungeon"))
+    world.combat_stats.add(entity, combat_stats_for_creature(spec))
+    world.weapons.add(entity, weapon_for_creature(spec))
+    if spec.loot.entries:
+        world.loot_drops.add(entity, LootDrop(table=spec.loot))
+    world.boss_markers.add(entity, BossMarker(token=boss_marker_token))
+    return entity
+
+
 def spawn_shopkeeper(
     world: World,
     x: int,

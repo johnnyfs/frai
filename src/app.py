@@ -27,12 +27,14 @@ from src.core.components import (
 from src.core.character_creation import CharacterCreationState, CharacterSheet
 from src.core.conditions import ConditionKind, tick_conditions
 from src.core.dialogue import (
+    AcceptQuestEffect,
     CloseDialogueEffect,
     DialogueOption,
     DialogueState,
     OpenShopEffect,
     RecruitEffect,
 )
+from src.core.quest import QUESTS, accept_quest
 from src.core.game_state import GameState
 from src.core.items import add_item, armor_item_id_for_name, weapon_item_id_for_name
 from src.core.effects import (
@@ -1018,6 +1020,10 @@ class App:
         if isinstance(effect, OpenShopEffect):
             self._apply_open_shop_effect(state.speaker)
             return
+        if isinstance(effect, AcceptQuestEffect):
+            self._apply_accept_quest_effect(effect.quest_id)
+            # Fall through to navigation so the accept can land on a
+            # follow-up node (the quest_offer_tree's "accepted" node).
         # An explicit CloseDialogueEffect is treated like no effect;
         # navigation rules below handle the close.
         _ = effect if isinstance(effect, CloseDialogueEffect) else None
@@ -1058,6 +1064,28 @@ class App:
         name = world.name_for(npc_entity)
         self.messages.emit(f"{name} joined your party.")
         self.refresh_vision()
+
+    def _apply_accept_quest_effect(self, quest_id: str) -> None:
+        """Mark ``quest_id`` as accepted on the party quest log (M14).
+
+        Emits the quest's accept message and victory condition into
+        the message log so the player has a record once the dialogue
+        modal closes. Unknown quest ids emit a warning rather than
+        raising — content typos shouldn't crash the game.
+        """
+
+        quest = QUESTS.get(quest_id)
+        if quest is None:
+            self.messages.emit(f"Unknown quest: {quest_id}.")
+            return
+        log = self.party.quests
+        changed = accept_quest(log, quest_id)
+        if not changed:
+            # Already accepted/completed — silent no-op rather than a
+            # noisy "you already took this quest" message.
+            return
+        self.messages.emit(quest.accept_message)
+        self.messages.emit(f"Victory: {quest.victory_condition}")
 
     def _apply_open_shop_effect(self, shopkeeper: EntityId) -> None:
         """Switch the UI to the shop screen for ``shopkeeper``.

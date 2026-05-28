@@ -52,6 +52,7 @@ from dataclasses import dataclass, field
 from typing import overload
 
 from src.core.entity import EntityId
+from src.core.quest import PartyQuestLog
 
 
 @dataclass(slots=True)
@@ -67,6 +68,7 @@ class PartyState:
     active_index: int = 0
     focused_index: int | None = None
     follow_order: list[EntityId] = field(default_factory=list)
+    quests: PartyQuestLog = field(default_factory=PartyQuestLog)
 
     # ------------------------------------------------------------------
     # Membership
@@ -204,6 +206,7 @@ class PartyState:
             "active_index": self.active_index,
             "focused_index": self.focused_index,
             "follow_order": [int(entity) for entity in self.follow_order],
+            "quests": self.quests.to_dict(),
         }
 
     @classmethod
@@ -220,6 +223,7 @@ class PartyState:
             active_index=int(data.get("active_index", 0)),
             focused_index=None if focused is None else int(focused),
             follow_order=follow_order,
+            quests=PartyQuestLog.from_dict(data.get("quests")),
         )
 
     # ------------------------------------------------------------------

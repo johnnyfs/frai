@@ -170,6 +170,7 @@ def test_to_dict_produces_json_safe_payload() -> None:
         "active_index": 1,
         "focused_index": 2,
         "follow_order": [1, 2, 3],
+        "quests": {"states": {}},
     }
 
 

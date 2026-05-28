@@ -225,6 +225,20 @@ class Corpse:
 
 
 @dataclass(slots=True)
+class BossMarker:
+    """Tag an entity as a quest boss (M14).
+
+    The ``token`` field is a stable string id matched against the
+    ``boss_marker`` field on :class:`~src.core.quest.QuestObjective`.
+    When a tagged entity dies, the quest progress hook in the effect
+    applier flips the corresponding quest forward if the kill is the
+    last criterion outstanding.
+    """
+
+    token: str
+
+
+@dataclass(slots=True)
 class GodMode:
     """Debug-only marker: holder ignores incoming DamageEntity effects.
 

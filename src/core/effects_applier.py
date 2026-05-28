@@ -19,6 +19,8 @@ from typing import TYPE_CHECKING, Protocol
 
 from src.core.components import Corpse, GodMode, Inventory, Name, Position, Presentation
 from src.core.conditions import apply_condition, end_condition
+from src.core.items import has_item
+from src.core.quest import QUESTS, Quest, QuestState
 from src.core.effects import (
     ApplyCondition,
     ApplyHealing,
@@ -225,6 +227,11 @@ def _apply_kill_entity(host: "App", effect: KillEntity) -> None:
     its drop table (via the host's ``loot_rng`` so seeded fixtures stay
     deterministic) and spawn a corpse at the same tile carrying the
     rolled inventory. The dying entity is then removed.
+
+    Before the kill is finalised we capture the dying entity's
+    :class:`~src.core.components.BossMarker` (if any) so the post-kill
+    quest hook can credit the boss token even after the entity row
+    has been wiped from the component stores.
     """
     if effect.entity == host.player:
         host.ui_mode = UIMode.game_over
@@ -234,6 +241,10 @@ def _apply_kill_entity(host: "App", effect: KillEntity) -> None:
     loot_drop = world.loot_drops.get(effect.entity)
     position = world.positions.get(effect.entity)
     creature = world.creatures.get(effect.entity)
+    # Snapshot the boss token before the entity is removed; the M14
+    # progress hook only needs the token, not the entity itself.
+    boss_marker = world.boss_markers.get(effect.entity)
+    boss_token = boss_marker.token if boss_marker is not None else None
     if loot_drop is not None and position is not None:
         from src.core.loot import roll_loot
 
@@ -258,6 +269,8 @@ def _apply_kill_entity(host: "App", effect: KillEntity) -> None:
                 items=(),
             )
     world.remove_entity(effect.entity)
+    if boss_token is not None:
+        _on_boss_killed(host, boss_token)
 
 
 def _spawn_corpse_entity(
@@ -527,6 +540,7 @@ def _apply_transfer_inventory(
         return
 
     transferred_names: list[str] = []
+    picked_item_ids: list[str] = []
     if source_inventory.gold:
         destination_inventory.gold += source_inventory.gold
         transferred_names.append(f"{source_inventory.gold} gold")
@@ -538,6 +552,7 @@ def _apply_transfer_inventory(
             if stack.quantity != 1
             else stack.item_id
         )
+        picked_item_ids.append(stack.item_id)
         source_inventory.items.remove(stack)
 
     if transferred_names:
@@ -551,6 +566,142 @@ def _apply_transfer_inventory(
     is_corpse = world.corpses.has(effect.source)
     if not is_container and not is_corpse:
         world.remove_entity(effect.source)
+
+    if picked_item_ids:
+        _on_items_picked_up(host, picked_item_ids, messages)
+
+
+# ---------------------------------------------------------------------------
+# Quest progress hooks (M14)
+# ---------------------------------------------------------------------------
+
+
+def _on_boss_killed(host: "App", boss_token: str) -> None:
+    """Re-evaluate every active quest whose objective matches ``boss_token``.
+
+    The check is conservative: a quest only progresses if it's currently
+    in :class:`QuestState.ACCEPTED`. The chalice-possession side of the
+    objective is checked by the same helper, so killing the boss when
+    the party already has the chalice flips the quest to ``completed``
+    immediately. Killing the boss without the chalice still leaves the
+    quest accepted; the pickup hook will re-check on the next pickup.
+    """
+
+    log = host.party.quests
+    for quest in QUESTS.all():
+        if quest.objective.boss_marker != boss_token:
+            continue
+        _try_complete_quest(host, quest)
+
+
+def _on_items_picked_up(
+    host: "App", item_ids: list[str], messages: list[str]
+) -> None:
+    """Re-evaluate quests after a pickup that may satisfy a treasure clause.
+
+    Walks every accepted quest whose ``treasure_item_id`` appears in
+    the pickup batch. Quests that complete have their completion
+    message and reward effects emitted into the same message list so
+    the player sees the pickup + completion announcement together.
+    """
+
+    log = host.party.quests
+    relevant = set(item_ids)
+    for quest in QUESTS.all():
+        if quest.objective.treasure_item_id not in relevant:
+            continue
+        _try_complete_quest(host, quest, message_sink=messages)
+
+
+def _try_complete_quest(
+    host: "App",
+    quest: Quest,
+    *,
+    message_sink: list[str] | None = None,
+) -> None:
+    """Promote ``quest`` to ``completed`` if both criteria are satisfied.
+
+    Both criteria must hold simultaneously: the boss must be dead AND
+    the party must hold the treasure item. The kill side is recorded
+    implicitly — once a creature with the matching boss marker is
+    removed from the world, no other live entity carries that marker,
+    so "no live entity with this marker exists" is the post-kill
+    invariant. The treasure side is a direct inventory walk.
+
+    Messages emitted by this helper land on ``message_sink`` if
+    provided (used by the pickup hook so the completion text rides
+    along with the "Picked up ..." line); otherwise they go straight
+    to ``host.messages`` (used by the kill hook).
+    """
+
+    log = host.party.quests
+    if log.state_of(quest.id) is not QuestState.ACCEPTED:
+        return
+    if not _quest_objective_satisfied(host, quest):
+        return
+    log.set_state(quest.id, QuestState.COMPLETED)
+    _emit_completion(host, quest, message_sink)
+    _apply_quest_reward(host, quest, message_sink)
+
+
+def _quest_objective_satisfied(host: "App", quest: Quest) -> bool:
+    world = host.world
+    # Boss check: no live entity in the world carries the matching
+    # boss-marker token. Once the boss is killed, the marker is gone
+    # (removed with the entity), so the "no live boss" predicate is
+    # the same as "the boss is dead".
+    boss_marker_token = quest.objective.boss_marker
+    for marker in world.boss_markers.values.values():
+        if marker.token == boss_marker_token:
+            return False
+    # Treasure check: any party member's inventory holds at least one
+    # of the treasure item.
+    item_id = quest.objective.treasure_item_id
+    for member in host.party.members:
+        inventory = world.inventories.get(member)
+        if inventory is None:
+            continue
+        if has_item(inventory, item_id, 1):
+            return True
+    return False
+
+
+def _emit_completion(
+    host: "App", quest: Quest, message_sink: list[str] | None
+) -> None:
+    if message_sink is not None:
+        message_sink.append(quest.completion_message)
+    else:
+        host.messages.emit(quest.completion_message)
+
+
+def _apply_quest_reward(
+    host: "App", quest: Quest, message_sink: list[str] | None
+) -> None:
+    """Apply the quest's reward effects (M14).
+
+    Gold is added to each living party member's inventory; XP is
+    announced but not yet mutated (no XP component yet — M25 will
+    wire it). Members without an inventory are skipped silently
+    rather than spawning one mid-completion.
+    """
+    reward = quest.reward
+    granted: list[str] = []
+    if reward.gold_per_member > 0:
+        for member in host.party.members:
+            inventory = host.world.inventories.get(member)
+            if inventory is None:
+                continue
+            inventory.gold += reward.gold_per_member
+        granted.append(f"{reward.gold_per_member} gold each")
+    if reward.xp_per_member > 0:
+        granted.append(f"{reward.xp_per_member} XP each")
+    if granted:
+        text = f"Quest reward: {', '.join(granted)}."
+        if message_sink is not None:
+            message_sink.append(text)
+        else:
+            host.messages.emit(text)
 
 
 def _apply_spawn_corpse(host: "App", effect: SpawnCorpse) -> None:
