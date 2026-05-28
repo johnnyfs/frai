@@ -28,6 +28,7 @@ from src.core.entity import EntityId
 from src.core.actions import EndTurn, InteractAttempt, MoveAttempt, ToggleTurnMode
 from src.core.modes import GameMode, GameOverMode, NormalMode, StartChoiceMode
 from src.core.party import CompanionDefinition, companion_definitions_for_player_class
+from src.core.time import SECONDS_PER_ROUND, SECONDS_PER_TURN, advance as advance_world_clock
 from src.core.turns import (
     ActivationState,
     MajorMode,
@@ -106,6 +107,8 @@ class App:
             if action.dx == 0 and action.dy == 0:
                 action = InteractAttempt(action.actor, self.facing[0], self.facing[1], action.check_result)
             self.apply_effects(self._handle_interaction(action))
+            if not is_turn_based(self.major_mode):
+                self._tick_world_clock(SECONDS_PER_TURN)
             self.sync_major_mode()
             return
         if isinstance(action, MoveAttempt) and isinstance(self.mode, NormalMode):
@@ -115,6 +118,7 @@ class App:
                 self.apply_effects(self._handle_active_move(action))
             else:
                 self.apply_effects(self._handle_explore_move(action))
+                self._tick_world_clock(SECONDS_PER_TURN)
             self.sync_major_mode()
             return
         effects = self.dispatcher.dispatch(action, self.world)
@@ -214,11 +218,18 @@ class App:
                 return
         if self.major_mode == "battle":
             self.run_enemy_activations()
+        self._tick_world_clock(SECONDS_PER_ROUND)
         for index, entity in enumerate(self.party):
             if _can_take_turn(self.world, entity):
                 self.active_party_index = index
                 self.activation.reset_for_activation()
                 return
+
+    def _tick_world_clock(self, seconds: int) -> None:
+        # Time-advance hook. Explore-mode moves/interactions tick a
+        # minute; turn-based round ticks fire after the enemy phase.
+        # Rest and scheduled-effect expiration live in M34 and M24.
+        advance_world_clock(self.world.clock, seconds, self.world.schedule)
 
     def run_enemy_activations(self) -> None:
         combat = next(

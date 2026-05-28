@@ -23,6 +23,7 @@ from src.core.components import (
     Weapon,
 )
 from src.core.entity import EntityId
+from src.core.time import Schedule, WorldTime
 from src.map.tiles import OUTSIDE, Tile
 
 T = TypeVar("T")
@@ -88,6 +89,8 @@ class World:
     locks: ComponentStore[Lock] = field(default_factory=lambda: ComponentStore({}))
     traps: ComponentStore[Trap] = field(default_factory=lambda: ComponentStore({}))
     containers: ComponentStore[Container] = field(default_factory=lambda: ComponentStore({}))
+    clock: WorldTime = field(default_factory=WorldTime)
+    schedule: Schedule = field(default_factory=Schedule)
 
     def create_entity(self) -> EntityId:
         entity = EntityId(self.next_entity_id)
