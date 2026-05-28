@@ -408,8 +408,19 @@ def roll_attributes(rng: random.Random | None = None) -> dict[str, int]:
     return dict(zip(ABILITIES, values, strict=True))
 
 
-def initial_character_creation_state() -> CharacterCreationState:
-    return CharacterCreationState(base_attributes=roll_attributes())
+def initial_character_creation_state(
+    rng: random.Random | None = None,
+) -> CharacterCreationState:
+    """Build the first character-creation state.
+
+    ``rng`` is forwarded to :func:`roll_attributes`. The interactive
+    launcher passes ``None`` (so the player gets fresh attribute rolls
+    on each new game); the M37 playtest harness and any future
+    deterministic test runner pin reproducibility by passing a seeded
+    RNG. Leaving the parameter optional keeps every existing caller
+    working unchanged.
+    """
+    return CharacterCreationState(base_attributes=roll_attributes(rng))
 
 
 def race_by_name(name: str | None) -> RaceOption | None:

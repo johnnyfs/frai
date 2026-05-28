@@ -43,9 +43,18 @@ class StartSystem:
         )
 
 
-def yolo_sheet() -> CharacterSheet:
-    rng = random.Random()
-    state = initial_character_creation_state()
+def yolo_sheet(rng: random.Random | None = None) -> CharacterSheet:
+    """Generate a randomized starter character sheet.
+
+    Accepts an optional :class:`random.Random` so the playtest harness
+    (M37) and any other reproducibility-sensitive caller can pin the
+    output. Defaults to a fresh, system-seeded ``random.Random()`` so
+    interactive YOLO starts vary across launches, which is what a
+    player expects.
+    """
+    if rng is None:
+        rng = random.Random()
+    state = initial_character_creation_state(rng=rng)
     state = with_selection(state, rng.choice(RACES).name)
     character_class = rng.choice(CLASSES)
     state = with_selection(state, character_class.name)

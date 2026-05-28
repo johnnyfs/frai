@@ -139,17 +139,120 @@ vocabulary is identical (see `docs/help/autowalk.md`):
 exposing `steps_taken`, `interrupt_reason`, and a fresh
 `observation_after` snapshot.
 
-## Harness usage (M37 hook)
+## Harness usage (M37)
 
-The harness should call `observe(app)` after every command and diff
-against the previous observation. With the M36 script runner the loop is:
+`src.testing.PlaytestHarness` is the headless wrapper an agentic
+playtester drives. It hides the difference between "construct an App,
+seed RNG, call observe, dispatch a script, save/load" behind a small
+class so a session reads top-to-bottom.
+
+```python
+from src.core.modes import UIMode
+from src.testing import PlaytestHarness
+
+harness = PlaytestHarness(seed=42)        # dev_mode=True by default
+print(harness.observe().mode)              # {'ui_mode': 'start', 'play_mode': None}
+
+# Drop into play, then drive an M36 script:
+harness.app.ui_mode = UIMode.play
+outcomes = harness.run("5l;,;i")           # walk 5 east, pick up, open inventory
+for outcome in outcomes:
+    print(outcome.command, outcome.steps_taken, outcome.interrupt_reason)
+
+# Inspect or assert via raw App access — predicates take the App so
+# they can reach into component stores the Observation doesn't expose:
+harness.assert_predicate(
+    lambda app: app.party.size == 4,
+    "party should still have four members",
+)
+
+# M33 debug commands (gated by FRAI_DEV, flipped on by dev_mode=True):
+banner = harness.debug("tp 5 5")
+print(banner)                              # "Teleported to (5, 5)."
+
+# M16 save/load round-trip:
+path = harness.save()                      # writes to a temp file
+harness.load(path)                         # swap self.app in place
+```
+
+### API surface
+
+| Method                                    | Returns                  | Notes |
+| ---                                       | ---                      | --- |
+| `__init__(scenario_name, seed, dev_mode)` | —                        | Constructs an App via `create_app(rng=Random(seed))`. `scenario_name` resolves through `SCENARIOS` (empty in M37; M38 populates). |
+| `run(script: str)`                        | `list[CommandOutcome]`   | Forwards to M36 `run_script`. |
+| `observe()`                               | `Observation`            | Forwards to M35 `observe`. Pure. |
+| `debug(command: str)`                     | `str`                    | Runs an M33 debug command; returns the resulting banner. |
+| `save(path: Path \| None)`                | `Path`                   | Wraps `src.core.save.save_game`. Default path lands in a per-harness tempdir. |
+| `load(path: Path)`                        | `None`                   | Wraps `load_game`; replaces `self.app`. |
+| `assert_predicate(fn, msg)`               | `None`                   | Raises `PredicateAssertionError` on a falsey predicate. |
+| `messages()`                              | `list[str]`              | Current + pending message-log lines. |
+| `load_scenario(name: str)`                | `None`                   | Rebuild against a registered scenario without re-constructing the harness. |
+
+### Determinism contract
+
+`PlaytestHarness(seed=N)` produces an App whose loot rolls, interaction
+checks, and YOLO character roll are all driven by `random.Random(N)`.
+Two harnesses created with the same seed and driven by the same
+command script must produce **bit-identical observation sequences** —
+the M37 test suite asserts this.
+
+`yolo_sheet(rng=...)` and `initial_character_creation_state(rng=...)`
+both accept an optional RNG so the harness can pin the starting party.
+Interactive launches still pass `None` and get fresh rolls.
+
+### Minimal fixture example (M38 will register fixtures here)
+
+```python
+from src.core.modes import UIMode
+from src.testing.scenarios import Scenario, register
+
+def open_field_builder(app):
+    """A tiny smoke fixture: drop straight into play mode."""
+    app.ui_mode = UIMode.play
+    return None  # mutates app in place; returning None keeps it.
+
+register(Scenario(
+    name="open_field",
+    builder=open_field_builder,
+    description="Standard create_app world, in play mode from t=0.",
+))
+```
+
+Once registered, an agent can spin the harness up with
+`PlaytestHarness(scenario_name="open_field")` and start running
+scripts immediately. M38 is the milestone that populates the registry
+with real fixtures (combat, dungeon, shop, etc.).
+
+### Notes on environment
+
+- The harness sets `FRAI_DEV=1` when `dev_mode=True` (the default) so
+  `harness.debug(...)` actually runs commands. Pass `dev_mode=False`
+  to assert that the disabled path returns a refusal banner.
+- `save()` with no argument writes to
+  `$TMPDIR/frai-playtest-harness/harness-seed<N>.json`. Pass an
+  explicit path for CI integration tests that need a known location.
+- `load(path)` keeps `self` identity stable; any caller holding a
+  reference to the harness keeps working after the swap.
+
+### Headless guarantees
+
+`PlaytestHarness.__init__` does not import `src.ui.screen`, does not
+call `curses.wrapper`, and does not require a TTY. Construction in a
+pytest subprocess with no controlling terminal is part of the test
+matrix.
+
+### Direct (non-harness) usage
+
+If you want to skip the harness wrapper and drive the lower layers
+directly, the original observe/script-runner loop still works:
 
 ```python
 from src.ui.observation import observe
 from src.ui.script_runner import run_script
 
 last = observe(app)
-while not app.terminated:
+while app.running:
     script = agent.decide(last)                  # e.g. "5l;i"
     outcomes = run_script(app, script)
     for outcome in outcomes:
