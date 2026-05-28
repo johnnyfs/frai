@@ -55,7 +55,7 @@ class _AppHost(Protocol):
     ui_mode: UIMode
     character_creation_state: object
     running: bool
-    party: list
+    party: object  # PartyState; typed loosely to avoid a circular import.
     active_party_index: int
     player: object
 
@@ -253,13 +253,18 @@ def _apply_set_character_sheet(host: "App", effect: SetCharacterSheet) -> None:
 
     _assign_character_sheet(host.world, effect.entity, effect.sheet)
     if effect.entity == host.player:
-        host.party = _replace_companions_for_player_sheet(
+        new_members = _replace_companions_for_player_sheet(
             host.world,
             host.player,
-            host.party,
+            host.party.members,
             effect.sheet,
         )
-        host.active_party_index = 0
+        # Mutate PartyState in place so the TurnController and any
+        # other holders see the updated roster without rewiring.
+        host.party.members = new_members
+        host.party.follow_order = list(new_members)
+        host.party.focused_index = None
+        host.party.active_index = 0
 
 
 def _apply_restart_game(host: "App", effect: RestartGame) -> None:

@@ -28,6 +28,7 @@ from src.core.entity import EntityId
 from src.core.actions import EndTurn, InteractAttempt, MoveAttempt, ToggleTurnMode
 from src.core.modes import PlayMode, UIMode, is_turn_based_play, play_mode_for_state
 from src.core.party import CompanionDefinition, companion_definitions_for_player_class
+from src.core.party_state import PartyState
 from src.core.time import SECONDS_PER_ROUND, SECONDS_PER_TURN, advance as advance_world_clock
 from src.core.turn_controller import TurnController
 from src.core.turns import ActivationState
@@ -60,7 +61,7 @@ from src.ui.screen import Screen
 class App:
     world: World
     player: EntityId
-    party: list[EntityId]
+    party: PartyState
     dispatcher: Dispatcher
     turn: TurnController = field(init=False)
     messages: MessageState = field(default_factory=MessageState)
@@ -71,15 +72,18 @@ class App:
     memory: PartyMemory = field(default_factory=PartyMemory)
     vision: VisionSystem = field(default_factory=VisionSystem)
     effect_applier: EffectApplier = field(init=False)
-    _initial_play_mode: PlayMode = PlayMode.explore
 
     def __post_init__(self) -> None:
         self.effect_applier = EffectApplier(self)
         self.turn = TurnController(
-            party_provider=lambda: self.party,
-            hostiles_probe=lambda: bool(hostiles_requiring_battle(self.world, self.party)),
+            party_state=self.party,
+            hostiles_probe=lambda: bool(
+                hostiles_requiring_battle(self.world, self.party.members)
+            ),
             can_take_turn=lambda entity: _can_take_turn(self.world, entity),
-            play_mode=self._initial_play_mode,
+            play_mode=play_mode_for_state(
+                bool(hostiles_requiring_battle(self.world, self.party.members))
+            ),
         )
         self.refresh_vision()
 
@@ -89,7 +93,7 @@ class App:
         Called after movement, door changes, and party rotation. Pure
         projection over current world state — no effects emitted.
         """
-        self.vision.tick(self.world, self.party, self.memory)
+        self.vision.tick(self.world, self.party.members, self.memory)
 
     # ------------------------------------------------------------------
     # Back-compat property surface
@@ -101,11 +105,11 @@ class App:
 
     @property
     def active_party_index(self) -> int:
-        return self.turn.active_index
+        return self.party.active_index
 
     @active_party_index.setter
     def active_party_index(self, value: int) -> None:
-        self.turn.active_index = value
+        self.party.active_index = value
 
     @property
     def activation(self) -> ActivationState:
@@ -113,6 +117,10 @@ class App:
 
     @activation.setter
     def activation(self, value: ActivationState) -> None:
+        # Route through PartyState's active member so the activation
+        # map is keyed consistently with whichever actor TurnController
+        # currently considers active. The explore-mode fallback (head of
+        # party) matches ``active_activation`` exactly.
         actor = self.turn.current_actor(self.player)
         self.turn._activations[actor] = value
 
@@ -249,12 +257,12 @@ class App:
         return self.dispatcher.dispatch(action, self.world)
 
     def _handle_explore_move(self, action: MoveAttempt) -> list[Effect]:
-        displacement = _party_displacement(self.world, self.party, action)
+        displacement = _party_displacement(self.world, self.party.members, action)
         if displacement is not None:
             return displacement
         previous_positions = [
             (entity, self.world.positions.require(entity).x, self.world.positions.require(entity).y)
-            for entity in self.party
+            for entity in self.party.follow_order
             if self.world.positions.has(entity)
         ]
         effects = self.dispatcher.dispatch(action, self.world)
@@ -270,7 +278,7 @@ class App:
         return effects
 
     def _handle_active_move(self, action: MoveAttempt) -> list[Effect]:
-        displacement = _party_displacement(self.world, self.party, action)
+        displacement = _party_displacement(self.world, self.party.members, action)
         if displacement is not None:
             cost = movement_cost_for_attempt(self.world, action)
             if not self.turn.consume_movement(cost):
@@ -320,7 +328,7 @@ class App:
         )
         EnemyAISystem(combat=combat).run_enemy_activations(
             self.world,
-            self.party,
+            self.party.members,
             self.apply_effects,
         )
 
@@ -328,7 +336,12 @@ class App:
         built, party = _build_party_world(width=self.world.width, height=self.world.height)
         self.world = built.world
         self.player = built.player
-        self.party = party
+        # Mutate the existing PartyState in place so TurnController's
+        # reference stays valid. ``turn.reset()`` clears active_index
+        # and per-actor activations after.
+        self.party.members = party
+        self.party.follow_order = list(party)
+        self.party.focused_index = None
         self.turn.reset()
         self.facing = (1, 0)
         self.ui_mode = UIMode.start
@@ -366,11 +379,8 @@ def create_app(
     return App(
         world=built.world,
         player=built.player,
-        party=party,
+        party=PartyState.from_members(party),
         dispatcher=dispatcher,
-        _initial_play_mode=play_mode_for_state(
-            bool(hostiles_requiring_battle(built.world, party))
-        ),
     )
 
 
@@ -542,7 +552,7 @@ def _run_curses(stdscr: curses.window) -> None:
             app.messages,
             app.ui_mode,
             app.focus,
-            app.party,
+            app.party.members,
             app.activation.movement_used,
             app.activation.movement_total,
             app.play_mode,
