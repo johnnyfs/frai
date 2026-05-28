@@ -126,6 +126,10 @@ def test_battle_mode_uses_space_to_rotate_active_party_focus() -> None:
 
     assert app.active_actor() == companion
     assert app.focus == companion
+    assert app.activation.action_used is False
+    assert app.activation.bonus_action_used is False
+    assert app.activation.reaction_used is False
+    assert app.activation.extra_actions_used == 0
 
     app.handle_key(ord("h"))
 
