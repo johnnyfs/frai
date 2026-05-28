@@ -245,13 +245,19 @@ class App:
         self.messages.emit("")
 
 
-def create_app(width: int = WORLD_WIDTH, height: int = WORLD_HEIGHT) -> App:
+def create_app(
+    width: int = WORLD_WIDTH,
+    height: int = WORLD_HEIGHT,
+    *,
+    rng: random.Random | None = None,
+) -> App:
     built, party = _build_party_world(width=width, height=height)
     movement = MovementSystem(
         obstruction=ObstructionSystem(),
         context_resolver=MovementContextResolver(),
     )
     combat = CombatSystem()
+    interaction_rng = rng if rng is not None else random.Random()
     dispatcher = Dispatcher(
         systems=[
             StartSystem(),
@@ -259,7 +265,7 @@ def create_app(width: int = WORLD_WIDTH, height: int = WORLD_HEIGHT) -> App:
             InventorySystem(),
             CharacterCreationSystem(),
             QuitSystem(),
-            InteractionSystem(),
+            InteractionSystem(rng=interaction_rng),
             movement,
             combat,
         ]
