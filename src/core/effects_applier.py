@@ -36,6 +36,7 @@ from src.core.leveling import (
     slot_progression_for,
     xp_for_kill,
 )
+from src.core.dialogue import mark_quest_completed_in_tree
 from src.core.quest import QUESTS, Quest, QuestState
 from src.core.effects import (
     ApplyCondition,
@@ -445,6 +446,24 @@ def _maybe_trigger_party_wipe_after_kill(host: "App", dying: object) -> None:
     host.character_creation_state = None
 
 
+def _creature_display_name(creature_kind: str) -> str:
+    """Resolve a creature kind key into its player-visible name.
+
+    The kind key is the registry key (e.g. ``boss_kobold_warlord``)
+    which is convenient for content code but not what the player should
+    see in messages. The registry stores a friendly ``name``
+    (``kobold warlord``) — use it when available, falling back to the
+    raw key for keys not in the registry so missing content doesn't
+    crash corpse naming (issue #114).
+    """
+    from src.core.creatures import CREATURES
+
+    spec = CREATURES.get(creature_kind)
+    if spec is None:
+        return creature_kind
+    return spec.name
+
+
 def _spawn_corpse_entity(
     world,
     *,
@@ -466,7 +485,7 @@ def _spawn_corpse_entity(
     entity = world.create_entity()
     world.positions.add(entity, Position(x=x, y=y))
     world.presentations.add(entity, Presentation("%"))
-    name = f"{creature_kind} corpse" if creature_kind else "corpse"
+    name = f"{_creature_display_name(creature_kind)} corpse" if creature_kind else "corpse"
     world.names.add(entity, Name(name))
     world.corpses.add(entity, Corpse(creature_kind=creature_kind))
     inventory = Inventory(gold=gold)
@@ -934,8 +953,11 @@ def _try_complete_quest(
 
     Messages emitted by this helper land on ``message_sink`` if
     provided (used by the pickup hook so the completion text rides
-    along with the "Picked up ..." line); otherwise they go straight
-    to ``host.messages`` (used by the kill hook).
+    along with the "Picked up ..." line). Without a sink (the kill
+    hook), the helper collects its own messages into a local list and
+    emits them as a single combined string at the end so the completion
+    announcement and reward summary don't overwrite each other in the
+    message pager (issue #112).
     """
 
     log = host.party.quests
@@ -944,8 +966,30 @@ def _try_complete_quest(
     if not _quest_objective_satisfied(host, quest):
         return
     log.set_state(quest.id, QuestState.COMPLETED)
-    _emit_completion(host, quest, message_sink)
-    _apply_quest_reward(host, quest, message_sink)
+    _rebind_quest_dialogues_to_completed(host, quest.id)
+    owned_sink = message_sink is None
+    sink: list[str] = [] if owned_sink else message_sink  # type: ignore[assignment]
+    _emit_completion(host, quest, sink)
+    _apply_quest_reward(host, quest, sink)
+    if owned_sink and sink:
+        host.messages.emit(" ".join(sink))
+
+
+def _rebind_quest_dialogues_to_completed(host: "App", quest_id: str) -> None:
+    """Walk NPC dialogue trees and re-bind any with ``quest_id`` (#113).
+
+    On the COMPLETED transition the quest giver's dialogue should
+    surface the completion follow-up instead of the original pitch on
+    the next interaction. Trees that don't carry the matching
+    ``quest_id`` (or that don't declare a ``completed_node_key``) are
+    skipped, so the helper is safe to call on every completion.
+    """
+    world = host.world
+    for npc_dialogue in world.npc_dialogues.values.values():
+        tree = npc_dialogue.tree
+        if tree.quest_id != quest_id:
+            continue
+        mark_quest_completed_in_tree(tree)
 
 
 def _quest_objective_satisfied(host: "App", quest: Quest) -> bool:
@@ -971,16 +1015,13 @@ def _quest_objective_satisfied(host: "App", quest: Quest) -> bool:
 
 
 def _emit_completion(
-    host: "App", quest: Quest, message_sink: list[str] | None
+    host: "App", quest: Quest, message_sink: list[str]
 ) -> None:
-    if message_sink is not None:
-        message_sink.append(quest.completion_message)
-    else:
-        host.messages.emit(quest.completion_message)
+    message_sink.append(quest.completion_message)
 
 
 def _apply_quest_reward(
-    host: "App", quest: Quest, message_sink: list[str] | None
+    host: "App", quest: Quest, message_sink: list[str]
 ) -> None:
     """Apply the quest's reward effects (M14, XP wired M25).
 
@@ -1008,10 +1049,7 @@ def _apply_quest_reward(
         granted.append(f"{reward.xp_per_member} XP each")
     if granted:
         text = f"Quest reward: {', '.join(granted)}."
-        if message_sink is not None:
-            message_sink.append(text)
-        else:
-            host.messages.emit(text)
+        message_sink.append(text)
 
 
 def _apply_spawn_corpse(host: "App", effect: SpawnCorpse) -> None:

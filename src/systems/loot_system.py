@@ -50,6 +50,15 @@ def _resolve_pickup(world: World, actor: EntityId) -> list[Effect]:
     sources = _pickup_sources(world, actor, position.x, position.y)
     if not sources:
         return [EmitMessage("Nothing to pick up.")]
+    # Containers that are still closed (or locked, or armed-with-trap)
+    # must be opened/picked/disarmed via the `e` interaction path first
+    # — picking up by walking onto the tile and pressing `,` would
+    # otherwise bypass locks and trap checks entirely (issue #65). We
+    # detect the obstruction once and surface a single hint so the
+    # player knows which verb to use.
+    refusal = _container_refusal(world, sources)
+    if refusal is not None:
+        return [EmitMessage(refusal)]
     effects: list[Effect] = []
     picked_any = False
     for source in sources:
@@ -61,6 +70,30 @@ def _resolve_pickup(world: World, actor: EntityId) -> list[Effect]:
     if not picked_any:
         return [EmitMessage("Nothing to pick up.")]
     return effects
+
+
+def _container_refusal(world: World, sources: list[EntityId]) -> str | None:
+    """Return a refusal message if any pickup source is a guarded container.
+
+    "Guarded" means a container that is still closed, or one whose lock
+    is locked, or one that carries an armed trap. The interaction
+    system (``e``) is the right entry point for all three: it routes
+    the actor through the disarm/pick/open sequence. Picking up through
+    ``,`` would silently bypass that, which is the bug behind #65.
+    """
+    for source in sources:
+        if not world.containers.has(source):
+            continue
+        container = world.containers.require(source)
+        trap = world.traps.get(source)
+        lock = world.locks.get(source)
+        if trap is not None and trap.is_armed:
+            return "Something is rigged here — disarm it first."
+        if lock is not None and lock.is_locked:
+            return "It is locked — open it first."
+        if not container.is_open:
+            return "It is closed — open it first."
+    return None
 
 
 def _pickup_sources(

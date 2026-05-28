@@ -62,7 +62,7 @@ are deliberately small:
 | `CloseDialogueEffect`  | Equivalent to "no effect, no next node" — closes the modal.                     |
 | `RecruitEffect`        | Adds the current speaker to the party and removes the NPC marker / dialogue.    |
 | `OpenShopEffect`       | Switches the UI to the shop screen and remembers the speaker as `shop_partner`. |
-| `AcceptQuestEffect`    | Flips the party quest log entry to `accepted` (M14). Does NOT close the modal — navigates to the option's `next_node` so the quest giver can show a thank-you line. |
+| `AcceptQuestEffect`    | Flips the party quest log entry to `accepted` (M14). Does NOT close the modal — navigates to the option's `next_node` so the quest giver can show a thank-you line. The accept also re-binds the tree's entry node to that follow-up so the next visit to the quest giver shows the in-flight reminder instead of replaying the pitch. |
 
 Options that set `next_node` navigate to that node within the same
 tree; options with `next_node=None` close the modal once the effect

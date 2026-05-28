@@ -40,8 +40,15 @@ class CombatSystem:
         attack_total = attack_roll + ability_mod + actor_stats.proficiency_bonus
         actor_name = world.name_for(action.actor)
         target_name = world.name_for(action.target)
-        actor_subject = "You" if actor_name == "you" else f"The {actor_name}"
-        hit_verb = _attack_verb(action.actor, weapon.name, weapon.damage_type, world)
+        is_second_person = actor_name == "you"
+        actor_subject = "You" if is_second_person else f"The {actor_name}"
+        hit_verb = _attack_verb(
+            action.actor,
+            weapon.name,
+            weapon.damage_type,
+            world,
+            second_person=is_second_person,
+        )
 
         # An attack is unambiguously loud. Ramp every hostile within
         # earshot before we resolve the roll so a "miss" still alerts
@@ -69,14 +76,57 @@ class CombatSystem:
         return effects
 
 
-def _attack_verb(entity: EntityId, weapon_name: str, damage_type: str, world: World) -> str:
+def _attack_verb(
+    entity: EntityId,
+    weapon_name: str,
+    damage_type: str,
+    world: World,
+    *,
+    second_person: bool = False,
+) -> str:
+    """Pick the verb shown in the attack message.
+
+    When ``second_person`` is true, the subject is "You" and the verb
+    needs the bare form ("you hit", "you slash"). Otherwise the subject
+    is a third-person singular ("The frog ...") and the verb takes the
+    ``-s`` form ("bites", "slashes"). The verb lexicon is stored as
+    third-person singular (the dominant case at runtime — every enemy
+    attack); the second-person form is derived by stripping a trailing
+    ``-es``/``-s`` when present.
+    """
+
     creature = world.creatures.get(entity)
     if creature is not None:
-        return creature.attack_verb
-    if weapon_name in {"dagger", "rapier", "shortsword"}:
-        return "stabs"
-    if damage_type == "slashing":
-        return "slashes"
-    if damage_type == "piercing":
-        return "stabs"
-    return "hits"
+        verb = creature.attack_verb
+    elif weapon_name in {"dagger", "rapier", "shortsword"}:
+        verb = "stabs"
+    elif damage_type == "slashing":
+        verb = "slashes"
+    elif damage_type == "piercing":
+        verb = "stabs"
+    else:
+        verb = "hits"
+    if second_person:
+        return _to_bare_verb(verb)
+    return verb
+
+
+def _to_bare_verb(third_person: str) -> str:
+    """Return the bare ("you ___") form of a third-person singular verb.
+
+    Handles the regular English ``-s``/``-es`` patterns we use in the
+    creature/weapon lexicon: ``slashes`` -> ``slash``, ``stabs`` ->
+    ``stab``, ``bites`` -> ``bite``, ``hits`` -> ``hit``. Verbs ending
+    in ``-shes``, ``-ches``, ``-xes``, ``-zes`` drop the trailing ``es``;
+    ``-ies`` becomes ``-y``; everything else drops a single trailing
+    ``s``. Verbs that don't end in ``s`` are returned as-is so future
+    lexicon entries authored in bare form keep working.
+    """
+
+    if not third_person.endswith("s"):
+        return third_person
+    if third_person.endswith(("shes", "ches", "xes", "zes")):
+        return third_person[:-2]
+    if third_person.endswith("ies") and len(third_person) > 3:
+        return third_person[:-3] + "y"
+    return third_person[:-1]

@@ -155,27 +155,57 @@ class DialogueTree:
     """A complete conversation.
 
     ``root`` is the key of the node the conversation starts on.
-    ``nodes`` is the full node map. Trees are immutable; per-session
-    state lives on :class:`DialogueState`.
+    ``nodes`` is the full node map. The tree dataclass itself is
+    frozen, but the ``nodes`` dict is mutable so the tree can re-bind
+    its entry node when quest state changes — see
+    :meth:`DialogueState.advance_to` and ``sync_quest_dialogue`` for the
+    issue #113 quest-aware re-entry path.
+
+    ``quest_id``, ``accepted_node_key``, and ``completed_node_key`` are
+    the optional quest-aware fields. When set, navigating to a node
+    whose key matches one of the keyed entries re-binds ``nodes["root"]``
+    so subsequent ``begin`` calls start the player on that node instead
+    of repeating the pitch.
     """
 
     root: str
     nodes: dict[str, DialogueNode] = field(default_factory=dict)
+    quest_id: str | None = None
+    accepted_node_key: str | None = None
+    completed_node_key: str | None = None
 
     def node(self, key: str) -> DialogueNode:
         return self.nodes[key]
+
+    def _rebind_root_to(self, node_key: str) -> None:
+        """Make subsequent ``begin`` calls land on ``node_key``.
+
+        Mutates the entry stored under the ``root`` key — the
+        ``root`` field itself is frozen, but the ``nodes`` dict is
+        not. Idempotent on repeated calls with the same key.
+        """
+        if node_key not in self.nodes:
+            return
+        self.nodes[self.root] = self.nodes[node_key]
 
     # ------------------------------------------------------------------
     # Save / load
     # ------------------------------------------------------------------
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        payload: dict[str, Any] = {
             "root": self.root,
             "nodes": {
                 key: _node_to_dict(node) for key, node in self.nodes.items()
             },
         }
+        if self.quest_id is not None:
+            payload["quest_id"] = self.quest_id
+        if self.accepted_node_key is not None:
+            payload["accepted_node_key"] = self.accepted_node_key
+        if self.completed_node_key is not None:
+            payload["completed_node_key"] = self.completed_node_key
+        return payload
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "DialogueTree":
@@ -184,7 +214,20 @@ class DialogueTree:
         nodes = {
             str(key): _node_from_dict(value) for key, value in nodes_raw.items()
         }
-        return cls(root=root, nodes=nodes)
+        quest_id_raw = data.get("quest_id")
+        accepted_raw = data.get("accepted_node_key")
+        completed_raw = data.get("completed_node_key")
+        return cls(
+            root=root,
+            nodes=nodes,
+            quest_id=None if quest_id_raw is None else str(quest_id_raw),
+            accepted_node_key=(
+                None if accepted_raw is None else str(accepted_raw)
+            ),
+            completed_node_key=(
+                None if completed_raw is None else str(completed_raw)
+            ),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -237,6 +280,17 @@ class DialogueState:
         if node_key not in self.tree.nodes:
             raise KeyError(f"DialogueTree has no node {node_key!r}")
         self.current_node = node_key
+        # Quest-aware trees re-bind their entry node when the player
+        # transitions into the accepted branch so the next ``begin``
+        # call lands on the follow-up instead of repeating the pitch
+        # (issue #113). Completion-side mutation lives in
+        # :func:`sync_completed_quest_dialogue` because the COMPLETED
+        # transition fires from the effect-applier hook (kill + chalice
+        # pickup), not from a dialogue option.
+        tree = self.tree
+        accepted_key = tree.accepted_node_key
+        if accepted_key is not None and node_key == accepted_key:
+            tree._rebind_root_to(node_key)
 
 
 # ---------------------------------------------------------------------------
@@ -310,20 +364,35 @@ def quest_offer_tree(
     pitch: str,
     accept_response: str,
     decline_response: str,
+    completion_response: str | None = None,
     accept_label: str = "Yes, I'll take it.",
     decline_label: str = "Not now.",
+    completion_label: str = "Farewell.",
 ) -> DialogueTree:
-    """Build a quest-offer dialogue tree (M14).
+    """Build a quest-offer dialogue tree (M14, #113 re-entry).
 
-    Three nodes: ``root`` (the pitch + accept/decline options),
-    ``accepted`` (a brief follow-up shown after the player accepts),
-    and ``declined`` (after they refuse). The accept option fires an
-    :class:`AcceptQuestEffect` keyed on ``quest_id`` and navigates to
-    ``accepted``. The decline option navigates to ``declined`` with no
-    effect. Both follow-up nodes have a single close option so the
-    modal dismisses cleanly.
+    Four nodes:
+
+    - ``root`` (the pitch + accept/decline options) — the initial
+      conversation entry.
+    - ``accepted`` — the response shown in-session right after the
+      accept option fires, AND the entry on subsequent visits while
+      the quest is ACCEPTED (so the NPC reminds the party of the
+      objective instead of replaying the pitch).
+    - ``declined`` (in-session follow-up after the player refuses).
+    - ``completed`` (entry once the quest is COMPLETED) — set from
+      ``completion_response``.
+
+    ``accepted_node_key`` is wired to ``accepted`` so
+    :meth:`DialogueState.advance_to` re-binds ``nodes["root"]`` to the
+    accept response as soon as the accept option fires.
+    ``completed_node_key`` is wired to ``completed`` so the
+    effect-applier completion hook can rebind the entry once the quest
+    finishes (#113).
     """
 
+    if completion_response is None:
+        completion_response = "Thank you. The work is done."
     root = DialogueNode(
         line=DialogueLine(speaker_id=speaker_id, text=pitch),
         options=(
@@ -347,10 +416,38 @@ def quest_offer_tree(
         line=DialogueLine(speaker_id=speaker_id, text=decline_response),
         options=(DialogueOption(label="Farewell.", next_node=None, effect=None),),
     )
+    completed = DialogueNode(
+        line=DialogueLine(speaker_id=speaker_id, text=completion_response),
+        options=(
+            DialogueOption(label=completion_label, next_node=None, effect=None),
+        ),
+    )
     return DialogueTree(
         root="root",
-        nodes={"root": root, "accepted": accepted, "declined": declined},
+        nodes={
+            "root": root,
+            "accepted": accepted,
+            "declined": declined,
+            "completed": completed,
+        },
+        quest_id=quest_id,
+        accepted_node_key="accepted",
+        completed_node_key="completed",
     )
+
+
+def mark_quest_completed_in_tree(tree: DialogueTree) -> None:
+    """Re-bind ``tree``'s entry node to its ``completed`` follow-up.
+
+    Used by the effects-applier completion hook (issue #113) when the
+    boss-kill + chalice-pickup pair flips the quest to ``COMPLETED``.
+    Trees without a ``completed_node_key`` are left untouched so the
+    helper is safe to call on any dialogue tree.
+    """
+    completed_key = tree.completed_node_key
+    if completed_key is None:
+        return
+    tree._rebind_root_to(completed_key)
 
 
 def shopkeeper_tree(
