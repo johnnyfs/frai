@@ -120,8 +120,8 @@ def test_to_dict_payload_is_json_serializable() -> None:
     assert isinstance(json_text, str)
     # Top-level schema_version is always present.
     assert payload["schema_version"] == GAME_STATE_SCHEMA_VERSION
-    # No "world" key yet (M16 adds it).
-    assert "world" not in payload
+    # The "world" key is included by default at and after M16.
+    assert "world" in payload
     # Required top-level fields the issue lists.
     for key in (
         "schema_version",
@@ -135,8 +135,16 @@ def test_to_dict_payload_is_json_serializable() -> None:
         "schedule",
         "facing",
         "character_creation_state",
+        "world",
     ):
         assert key in payload, f"missing {key}"
+
+
+def test_to_dict_without_world_omits_world_key() -> None:
+    """``include_world=False`` preserves the M49 partial shape."""
+    app = create_app()
+    payload = app.game_state.to_dict(include_world=False)
+    assert "world" not in payload
 
 
 def test_to_dict_captures_facing_and_modes() -> None:
