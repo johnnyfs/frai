@@ -440,6 +440,13 @@ class App:
         if self.ui_mode is UIMode.dialogue and self.dialogue is not None:
             self._handle_dialogue_key(key)
             return
+        # M13 shop modal owns its keys until the full buy/sell UI
+        # lands (M17). Until then ``Esc`` / ``q`` close it so the
+        # player is never trapped, and ``b`` / ``s`` are reserved
+        # for the eventual buy / sell actions.
+        if self.ui_mode is UIMode.shop:
+            self._handle_shop_key(key)
+            return
         self.sync_play_mode()
         # Autowalk (M22): a capital direction key initiates a repeated
         # move in that direction. The detection happens before
@@ -1067,6 +1074,42 @@ class App:
         self.shop_partner = shopkeeper
         self.dialogue = None
         self.ui_mode = UIMode.shop
+
+    def close_shop(self) -> None:
+        """Close the shop modal and return to play.
+
+        Clears the transient ``shop_partner`` so a subsequent open
+        starts fresh. The shop screen does not consume any action
+        economy or world time, so we simply flip the mode back.
+        """
+
+        self.shop_partner = None
+        self.ui_mode = UIMode.play
+
+    def _handle_shop_key(self, key: int) -> None:
+        """Input dispatch while the shop modal is open.
+
+        The full buy/sell UI is an M17 follow-up; this handler exists
+        so the modal isn't a key trap. ``Esc`` / ``q`` close the
+        modal and return to play. ``b`` / ``s`` are reserved buy /
+        sell keys that currently emit a placeholder message so the
+        player gets feedback rather than silence.
+        """
+
+        try:
+            key_char = chr(key).lower() if 0 <= key <= 255 else ""
+        except ValueError:
+            key_char = ""
+
+        if key == 27 or key_char == "q":
+            self.close_shop()
+            return
+        if key_char == "b":
+            self.messages.emit("Buy not yet implemented.")
+            return
+        if key_char == "s":
+            self.messages.emit("Sell not yet implemented.")
+            return
 
     def _handle_dialogue_key(self, key: int) -> None:
         """Number / arrow / Enter / Esc input while the dialogue modal is open.

@@ -669,7 +669,11 @@ def _available_actions(
         # dialogue modal is up.
         return ["dialogue.select_option", "dialogue.close"]
     if ui_mode is UIMode.shop:
-        return ["shop.close"]
+        # M13/M17: full buy/sell UI is pending; the close verb is the
+        # only one that fully resolves today. ``buy`` / ``sell`` are
+        # surfaced so a playtester can see the reserved keys (they
+        # currently emit a placeholder message).
+        return ["shop.close", "shop.buy", "shop.sell"]
     if ui_mode is UIMode.spell_menu:
         # M11: spell menu only accepts a letter pick or cancel.
         return ["spell_menu.pick", "spell_menu.cancel"]
@@ -793,7 +797,9 @@ def _modal_snapshot(app: Any) -> ModalSnapshot | None:
         return ModalSnapshot(kind="dialogue", options=options)
     if ui_mode is UIMode.shop:
         partner = getattr(app, "shop_partner", None)
-        options = ["close"]
+        # Reserved keys for the M17 follow-up; ``close`` is the only
+        # one that fully resolves today.
+        options = ["close", "buy", "sell"]
         if partner is not None:
             shop = app.world.shops.get(partner)
             if shop is not None:
