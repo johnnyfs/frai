@@ -77,8 +77,12 @@ def test_inventory_lines_list_worn_armor_and_weapon_in_hand() -> None:
     app.handle_key(ord("y"))
 
     assert _inventory_lines(app.world, app.player) == [
+        "Gold   - 25",
         "Armor  - chain mail (worn)",
         "Weapon - longsword (in hand)",
+        "Carried items",
+        "- longsword (equipped)",
+        "- chain mail (equipped)",
     ]
 
 

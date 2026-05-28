@@ -8,13 +8,16 @@ from src.core.dispatcher import Dispatcher
 from src.core.components import (
     BlocksMovement,
     Character,
+    Equipment,
     Faction,
+    Inventory,
     Name,
     PlayerControlled,
     Position,
     Presentation,
 )
 from src.core.character_creation import CharacterSheet
+from src.core.items import add_item, armor_item_id_for_name, weapon_item_id_for_name
 from src.core.effects import (
     DamageEntity,
     Effect,
@@ -408,7 +411,20 @@ def _assign_character_sheet(world: World, entity: EntityId, sheet: CharacterShee
     armor = starter_armor_for_class(sheet.character_class)
     world.armor.add(entity, armor)
     world.combat_stats.add(entity, combat_stats_for_sheet(sheet, armor))
-    world.weapons.add(entity, starter_weapon_for_class(sheet.character_class))
+    weapon = starter_weapon_for_class(sheet.character_class)
+    world.weapons.add(entity, weapon)
+
+    inventory = Inventory(gold=25)
+    weapon_item_id = weapon_item_id_for_name(weapon.name)
+    armor_item_id = armor_item_id_for_name(armor.name)
+    add_item(inventory, weapon_item_id)
+    if armor_item_id is not None:
+        add_item(inventory, armor_item_id)
+    world.inventories.add(entity, inventory)
+    world.equipment.add(
+        entity,
+        Equipment(weapon_item_id=weapon_item_id, armor_item_id=armor_item_id),
+    )
 
 
 def _hostile_target_for_move(world: World, action: MoveAttempt) -> EntityId | None:

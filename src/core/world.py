@@ -1,7 +1,27 @@
 from dataclasses import dataclass, field
 from typing import Generic, TypeVar
 
-from src.core.components import AI, Armor, BlocksMovement, Character, CombatStats, Container, Creature, Door, Faction, Lock, Name, PlayerControlled, Position, Presentation, Trap, Weapon
+from src.core.components import (
+    AI,
+    Armor,
+    BlocksMovement,
+    Character,
+    CombatStats,
+    Container,
+    Creature,
+    Door,
+    Equipment,
+    Faction,
+    Inventory,
+    Lock,
+    Name,
+    PlayerControlled,
+    Position,
+    Presentation,
+    Shop,
+    Trap,
+    Weapon,
+)
 from src.core.entity import EntityId
 from src.map.tiles import OUTSIDE, Tile
 
@@ -60,6 +80,9 @@ class World:
     combat_stats: ComponentStore[CombatStats] = field(default_factory=lambda: ComponentStore({}))
     weapons: ComponentStore[Weapon] = field(default_factory=lambda: ComponentStore({}))
     armor: ComponentStore[Armor] = field(default_factory=lambda: ComponentStore({}))
+    inventories: ComponentStore[Inventory] = field(default_factory=lambda: ComponentStore({}))
+    equipment: ComponentStore[Equipment] = field(default_factory=lambda: ComponentStore({}))
+    shops: ComponentStore[Shop] = field(default_factory=lambda: ComponentStore({}))
     factions: ComponentStore[Faction] = field(default_factory=lambda: ComponentStore({}))
     doors: ComponentStore[Door] = field(default_factory=lambda: ComponentStore({}))
     locks: ComponentStore[Lock] = field(default_factory=lambda: ComponentStore({}))
@@ -115,6 +138,9 @@ class World:
             self.combat_stats,
             self.weapons,
             self.armor,
+            self.inventories,
+            self.equipment,
+            self.shops,
             self.factions,
             self.doors,
             self.locks,
