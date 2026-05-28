@@ -51,6 +51,8 @@ def _resolve_interaction(
 ) -> list[Effect]:
     trap = world.traps.get(target)
     if trap is not None and trap.is_armed:
+        if action.check_result is None:
+            return [EmitMessage("You sense danger - you need a way to disarm it.")]
         if _passes_check(action.check_result, trap.disarm_dc):
             return [DisarmTrap(target), EmitMessage("Trap disarmed.")]
         return [
@@ -61,6 +63,8 @@ def _resolve_interaction(
 
     lock = world.locks.get(target)
     if lock is not None and lock.is_locked:
+        if action.check_result is None:
+            return [EmitMessage("It's locked. You need a way to pick it.")]
         if not _passes_check(action.check_result, lock.pick_dc):
             return [EmitMessage("Lock pick failed.")]
         return [

@@ -106,6 +106,35 @@ def test_reusable_trap_still_emits_trigger_event() -> None:
     assert result.effects == [DamageEntity(actor, 3), EmitMessage("Trap triggered."), TriggerTrap(trap)]
 
 
+def test_locked_door_without_check_emits_refusal_message() -> None:
+    world = build_tiny_map()
+    actor = add_actor(world, 2, 2)
+    door = _add_feature(world, 3, 2)
+    world.doors.add(door, Door())
+    world.locks.add(door, Lock(is_locked=True, pick_dc=12))
+    world.blockers.add(door, BlocksMovement("locked door"))
+    interaction = InteractionSystem()
+
+    result = interaction.handle(InteractAttempt(actor, 1, 0), world)
+
+    assert result.effects == [EmitMessage("It's locked. You need a way to pick it.")]
+    assert world.locks.require(door).is_locked is True
+    assert world.blockers.has(door)
+
+
+def test_armed_trap_without_check_refuses_without_damage() -> None:
+    world = build_tiny_map()
+    actor = add_actor(world, 2, 2)
+    trap = _add_feature(world, 3, 2)
+    world.traps.add(trap, Trap(disarm_dc=12, damage=3))
+    interaction = InteractionSystem()
+
+    result = interaction.handle(InteractAttempt(actor, 1, 0), world)
+
+    assert result.effects == [EmitMessage("You sense danger - you need a way to disarm it.")]
+    assert world.traps.require(trap).is_armed is True
+
+
 def test_container_opens() -> None:
     world = build_tiny_map()
     actor = add_actor(world, 2, 2)
