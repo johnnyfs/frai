@@ -483,6 +483,89 @@ def test_world_to_dict_drops_god_mode() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Issue #88 — stale modal ui_mode repair
+#
+# The save serializes ``ui_mode`` but skips per-input modal state
+# (``targeting``, ``dialogue``, ``shop_partner``). Loading a save written
+# mid-modal used to leave ``ui_mode == X`` with the backing state
+# ``None``, and every input handler short-circuits in that case, so the
+# player was permanently stuck. The loader now demotes any orphaned
+# modal mode back to :class:`UIMode.play`.
+# ---------------------------------------------------------------------------
+
+
+def test_load_clears_stale_targeting_mode(tmp_path: Path) -> None:
+    """Save written mid-examine loads as play (issue #88)."""
+    app = create_app()
+    app.ui_mode = UIMode.play
+    # Open the examine cursor through the player input path so we
+    # get a realistic ``UIMode.targeting`` + ``app.targeting`` state.
+    app.handle_key(ord("x"))
+    assert app.ui_mode is UIMode.targeting
+    assert app.targeting is not None
+
+    path = tmp_path / "save.json"
+    save_game(app, path)
+    # Sanity check: the on-disk payload really does carry the
+    # ``targeting`` ui_mode (so the repair has something to fix).
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert payload["ui_mode"] == "targeting"
+
+    loaded = load_game(path)
+    assert loaded.ui_mode is UIMode.play
+    assert loaded.targeting is None
+
+
+def test_load_after_stale_targeting_lets_player_move(tmp_path: Path) -> None:
+    """The repaired loaded App accepts a movement key (issue #88)."""
+    app = create_app()
+    app.ui_mode = UIMode.play
+    app.handle_key(ord("x"))
+    assert app.ui_mode is UIMode.targeting
+
+    path = tmp_path / "save.json"
+    save_game(app, path)
+    loaded = load_game(path)
+
+    direction_key, dx, dy = _pick_open_direction(loaded)
+    before = loaded.world.positions.require(loaded.player)
+    before_xy = (before.x, before.y)
+    loaded.handle_key(direction_key)
+    after = loaded.world.positions.require(loaded.player)
+    assert (after.x, after.y) == (before_xy[0] + dx, before_xy[1] + dy)
+
+
+def test_load_clears_stale_dialogue_mode(tmp_path: Path) -> None:
+    """A save with ``ui_mode == dialogue`` but no dialogue state loads as play."""
+    app = create_app()
+    # Forge a stale dialogue mode directly — we don't need a real
+    # NPC interaction to exercise the load-time repair. The save
+    # path drops ``app.dialogue`` either way, so simulating the
+    # broken-on-disk shape is exactly the orphan we want.
+    app.ui_mode = UIMode.dialogue
+
+    path = tmp_path / "save.json"
+    save_game(app, path)
+    loaded = load_game(path)
+
+    assert loaded.ui_mode is UIMode.play
+    assert loaded.dialogue is None
+
+
+def test_load_clears_stale_shop_mode(tmp_path: Path) -> None:
+    """A save with ``ui_mode == shop`` but no shop partner loads as play."""
+    app = create_app()
+    app.ui_mode = UIMode.shop
+
+    path = tmp_path / "save.json"
+    save_game(app, path)
+    loaded = load_game(path)
+
+    assert loaded.ui_mode is UIMode.play
+    assert loaded.shop_partner is None
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 

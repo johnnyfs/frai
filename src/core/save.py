@@ -57,6 +57,11 @@ Skipped (transient or behaviour wiring):
 - in-progress ``autowalk`` request (M22 design choice — see help)
 - the curses screen / loop ``running`` flag
 - ``GodMode`` debug marker (M33 — never persisted)
+- per-input modal state: ``targeting`` (M20/M21), ``dialogue`` (M13),
+  ``shop_partner`` (M17). A save written mid-modal loses the in-flight
+  selection. To prevent the player getting stuck with ``ui_mode``
+  pointing at a modal whose state is gone, :func:`load_game` demotes
+  any orphaned modal mode back to :class:`UIMode.play` (issue #88).
 
 Default save location
 ---------------------
@@ -76,7 +81,7 @@ from typing import TYPE_CHECKING, Any
 
 from src.core.entity import EntityId
 from src.core.game_state import GAME_STATE_SCHEMA_VERSION, GameState
-from src.core.modes import PlayMode, play_mode_for_state
+from src.core.modes import PlayMode, UIMode, play_mode_for_state
 from src.core.party_state import PartyState
 from src.core.turn_controller import TurnController
 from src.core.turns import ActivationState
@@ -215,8 +220,48 @@ def load_game(path: Path | None = None) -> "App":
     rng_state = payload.get("loot_rng_state")
     if rng_state is not None:
         scaffold.loot_rng.setstate(_rng_state_from_dict(rng_state))
+    # Repair stale modal ``ui_mode`` values whose backing transient state
+    # was dropped by the save (issue #88). ``ui_mode`` is persisted but
+    # the per-modal state (``targeting``, ``dialogue``, ``shop_partner``)
+    # is not — so a save written mid-modal lands on load with
+    # ``ui_mode == X`` but the state hook ``None``. Every input handler
+    # gates on the state being non-None, so the player gets silently
+    # stuck. Demote back to ``UIMode.play`` so input flows normally; the
+    # in-flight modal selection is lost (acceptable for now — see the
+    # transient-state docstring above).
+    _repair_stale_modal(scaffold)
     scaffold.refresh_vision()
     return scaffold
+
+
+# Modal UI modes whose interactive state lives on ``App`` rather than in
+# ``GameState``. Listed once so the load-time repair and any future
+# audit can share the same source of truth.
+_TRANSIENT_MODAL_MODES: frozenset[UIMode] = frozenset(
+    {UIMode.targeting, UIMode.dialogue, UIMode.shop}
+)
+
+
+def _repair_stale_modal(app: "App") -> None:
+    """Drop a stale modal ``ui_mode`` whose transient state is missing.
+
+    Save serializes ``ui_mode`` but skips ``app.targeting``,
+    ``app.dialogue``, and ``app.shop_partner`` (they're per-input
+    modals, not gameplay facts). On load that combination leaves the
+    player stuck because every input handler short-circuits when the
+    state hook is ``None``. We unconditionally demote those orphaned
+    modals back to :class:`UIMode.play`.
+    """
+
+    if app.ui_mode not in _TRANSIENT_MODAL_MODES:
+        return
+    if app.ui_mode is UIMode.targeting and app.targeting is not None:
+        return
+    if app.ui_mode is UIMode.dialogue and app.dialogue is not None:
+        return
+    if app.ui_mode is UIMode.shop and app.shop_partner is not None:
+        return
+    app.ui_mode = UIMode.play
 
 
 # ---------------------------------------------------------------------------
