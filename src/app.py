@@ -35,7 +35,6 @@ from src.core.turns import (
     MOVEMENT_TOTAL_FEET,
     is_turn_based,
     major_mode_for_state,
-    movement_cost as movement_cost_for_delta,
 )
 from src.core.world import World
 from src.map.room_builder import BuiltRoom, build_room_world
@@ -45,7 +44,11 @@ from src.systems.inventory_system import InventorySystem
 from src.systems.character_creation_system import CharacterCreationSystem
 from src.systems.combat_system import CombatSystem
 from src.systems.message_system import MessageState
-from src.systems.movement_system import MovementContextResolver, MovementSystem
+from src.systems.movement_system import (
+    MovementContextResolver,
+    MovementSystem,
+    movement_cost_for_attempt,
+)
 from src.systems.obstruction_system import ObstructionSystem
 from src.systems.quit_system import QuitSystem
 from src.systems.render_system import render
@@ -182,7 +185,7 @@ class App:
     def _handle_active_move(self, action: MoveAttempt) -> list[Effect]:
         displacement = _party_displacement(self.world, self.party, action)
         if displacement is not None:
-            cost = movement_cost(action)
+            cost = movement_cost_for_attempt(self.world, action)
             if not self.activation.spend_movement(cost):
                 return [EmitMessage("No movement remaining.")]
             return displacement
@@ -195,7 +198,7 @@ class App:
             self.activation.spend_action()
             return effects
 
-        cost = movement_cost(action)
+        cost = movement_cost_for_attempt(self.world, action)
         if not self.activation.can_spend_movement(cost):
             return [EmitMessage("No movement remaining.")]
 
@@ -253,7 +256,8 @@ class App:
                 if step is None:
                     break
                 dx, dy = step
-                movement_used += movement_cost(MoveAttempt(enemy, dx, dy))
+                action = MoveAttempt(enemy, dx, dy)
+                movement_used += movement_cost_for_attempt(self.world, action)
                 position = self.world.positions.require(enemy)
                 self.apply_effects([MoveEntity(enemy, position.x + dx, position.y + dy)])
 
@@ -348,10 +352,6 @@ def _assign_character_sheet(world: World, entity: EntityId, sheet: CharacterShee
     world.armor.add(entity, armor)
     world.combat_stats.add(entity, combat_stats_for_sheet(sheet, armor))
     world.weapons.add(entity, starter_weapon_for_class(sheet.character_class))
-
-
-def movement_cost(action: MoveAttempt) -> float:
-    return movement_cost_for_delta(action.dx, action.dy)
 
 
 def _hostile_target_for_move(world: World, action: MoveAttempt) -> EntityId | None:
@@ -463,7 +463,7 @@ def _enemy_step_toward(
         if candidate_dx == 0 and candidate_dy == 0:
             continue
         action = MoveAttempt(enemy, candidate_dx, candidate_dy)
-        if movement_cost(action) > movement_remaining:
+        if movement_cost_for_attempt(world, action) > movement_remaining:
             continue
         destination_x = enemy_position.x + candidate_dx
         destination_y = enemy_position.y + candidate_dy

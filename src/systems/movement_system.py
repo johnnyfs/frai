@@ -34,11 +34,7 @@ class MovementContextResolver:
             destination_entities=world.entities_at(destination_x, destination_y),
             blockers=world.blockers_at(destination_x, destination_y),
             destination_tile=destination_tile,
-            movement_cost=terrain_adjusted_movement_cost(
-                action.dx,
-                action.dy,
-                destination_tile,
-            ),
+            movement_cost=movement_cost_for_attempt(world, action),
         )
 
 
@@ -88,3 +84,9 @@ def _hostile_target(actor: EntityId, entities: list[EntityId], world: World) -> 
 
 def terrain_adjusted_movement_cost(dx: int, dy: int, tile: Tile) -> float:
     return movement_cost(dx, dy) * tile.movement_cost_multiplier
+
+
+def movement_cost_for_attempt(world: World, action: MoveAttempt) -> float:
+    position = world.positions.require(action.actor)
+    destination_tile = world.tile_at(position.x + action.dx, position.y + action.dy)
+    return terrain_adjusted_movement_cost(action.dx, action.dy, destination_tile)

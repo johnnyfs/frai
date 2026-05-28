@@ -18,9 +18,11 @@ from src.map.tiles import (
 from src.systems.movement_system import (
     MovementContextResolver,
     MovementSystem,
+    movement_cost_for_attempt,
     terrain_adjusted_movement_cost,
 )
 from src.systems.obstruction_system import ObstructionSystem
+from src.systems.render_system import TERRAIN_COLOR_PROJECTIONS
 from tests.support.tiny_world import add_actor, build_tiny_map, resolve_action
 
 
@@ -33,6 +35,15 @@ def test_terrain_catalog_contains_required_map_categories() -> None:
     assert TERRAIN_CATALOG["wall.vertical"] is VERTICAL_WALL
     assert TERRAIN_CATALOG["blocked.water"] is WATER
     assert TERRAIN_CATALOG["difficult.rubble"] is RUBBLE
+
+
+def test_terrain_catalog_projection_integrity() -> None:
+    assert "terrain.default" in TERRAIN_COLOR_PROJECTIONS
+    for tile in TERRAIN_CATALOG.values():
+        assert tile.movement_cost_multiplier > 0
+        assert tile.color_token in TERRAIN_COLOR_PROJECTIONS
+        if tile.blocks_movement:
+            assert tile.block_reason
 
 
 def test_blocked_terrain_reports_terrain_blocker_and_blocks_movement() -> None:
@@ -62,6 +73,7 @@ def test_difficult_terrain_keeps_cost_metadata_separate_from_blocking() -> None:
     assert context.destination_tile.kind is TileKind.DIFFICULT
     assert context.blockers == []
     assert context.movement_cost == 6.0
+    assert movement_cost_for_attempt(world, MoveAttempt(player, 1, 0)) == 6.0
     assert terrain_adjusted_movement_cost(1, 1, RUBBLE) == 8.5
 
 
