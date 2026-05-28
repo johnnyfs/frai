@@ -7,6 +7,7 @@ from src.core.actions import (
     QuitConfirm,
     QuitRequest,
     StartChoice,
+    ToggleTurnMode,
 )
 from src.core.character_creation import initial_character_creation_state
 from src.core.entity import EntityId
@@ -32,6 +33,10 @@ def test_normal_mode_maps_i_to_inventory_request() -> None:
 
 def test_normal_mode_maps_space_to_end_turn() -> None:
     assert map_key(ord(" "), NormalMode(), EntityId(1)) == EndTurn()
+
+
+def test_normal_mode_maps_t_to_turn_mode_toggle() -> None:
+    assert map_key(ord("t"), NormalMode(), EntityId(1)) == ToggleTurnMode()
 
 
 def test_inventory_mode_maps_close_keys() -> None:

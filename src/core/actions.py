@@ -60,6 +60,11 @@ class EndTurn:
     pass
 
 
+@dataclass(frozen=True, slots=True)
+class ToggleTurnMode:
+    pass
+
+
 Action: TypeAlias = (
     MoveAttempt
     | QuitRequest
@@ -71,4 +76,5 @@ Action: TypeAlias = (
     | InventoryRequest
     | CloseInventory
     | EndTurn
+    | ToggleTurnMode
 )

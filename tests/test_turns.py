@@ -1,4 +1,4 @@
-from src.core.turns import ActivationState, major_mode_for_hostiles, movement_cost
+from src.core.turns import ActivationState, is_turn_based, major_mode_for_state, movement_cost
 
 
 def test_activation_state_tracks_action_once() -> None:
@@ -25,5 +25,13 @@ def test_movement_costs_are_explicit_turn_rules() -> None:
 
 
 def test_major_mode_is_derived_from_hostile_presence() -> None:
-    assert major_mode_for_hostiles(True) == "battle"
-    assert major_mode_for_hostiles(False) == "explore"
+    assert major_mode_for_state(True) == "battle"
+    assert major_mode_for_state(False) == "explore"
+    assert major_mode_for_state(False, voluntary_turn_based=True) == "turn"
+    assert major_mode_for_state(True, voluntary_turn_based=True) == "battle"
+
+
+def test_turn_based_modes_are_explicit() -> None:
+    assert is_turn_based("battle") is True
+    assert is_turn_based("turn") is True
+    assert is_turn_based("explore") is False
