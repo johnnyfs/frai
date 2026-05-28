@@ -110,7 +110,7 @@ Architecture direction:
 | M35 | Agent-readable observation mode                    | (foundation)                | #58               | complete   |
 | M36 | Command scripting and agent input mode             | M22, M35                    | #68               | complete   |
 | M37 | Playtest harness                                   | M35, M36                    | #71               | complete   |
-| M38 | Scenario fixtures for playtesting                  | M37                         | #31               | complete   |
+| M38 | Scenario fixtures for playtesting                  | M37                         | #76               | complete   |
 | M39 | Online help (`?`)                                  | M31                         | #32               | unassigned |
 | M40 | Playtest bug-report workflow                       | M35, M37                    | #74               | complete   |
 | M41 | Maintain-one-playtester process                    | M35, M36, M37, M38          | #34               | unassigned |
