@@ -92,7 +92,7 @@ Architecture direction:
 | M17 | UI polish for playtest                             | M3, M4, M8, M12, M13, M16   | pending           | pending    |
 | M18 | End-to-end integration confidence                  | M14, M15, M16, M17          | pending           | pending    |
 | M19 | Vision, lighting, LOS, and memory rendering        | M1, M2, M7                  | #54               | complete   |
-| M20 | Targeting mode                                     | M4, M19                     | #22               | in review  |
+| M20 | Targeting mode                                     | M4, M19                     | #75               | complete   |
 | M21 | Examine and look command                           | M19, M20                    | #24               | unassigned |
 | M22 | Pathing / auto-walk                                | M3, M7, M19                 | #62               | complete   |
 | M23 | Stealth, noise, and perception                     | M4, M19, M26, M28           | #25               | unassigned |
