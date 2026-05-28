@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol
 
+from src.core.components import Inventory
 from src.core.effects import (
     DamageEntity,
     DisarmTrap,
@@ -169,12 +170,20 @@ def _apply_kill_entity(host: "App", effect: KillEntity) -> None:
 
 
 def _apply_open_entity(host: "App", effect: OpenEntity) -> None:
-    """Pure world mutation. Opens both doors and containers for the entity."""
+    """Pure world mutation. Opens doors and containers for the entity.
+
+    Containers always have an ``Inventory`` component as their authoritative
+    contents store. Opening a container ensures the inventory exists (empty by
+    default) so callers can rely on ``world.inventories.get(container)`` once
+    the open effect has been applied.
+    """
     world = host.world
     if world.doors.has(effect.entity):
         world.doors.require(effect.entity).is_open = True
     if world.containers.has(effect.entity):
         world.containers.require(effect.entity).is_open = True
+        if not world.inventories.has(effect.entity):
+            world.inventories.add(effect.entity, Inventory())
 
 
 def _apply_unlock_entity(host: "App", effect: UnlockEntity) -> None:
