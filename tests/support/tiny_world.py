@@ -15,7 +15,7 @@ from src.core.components import (
     Presentation,
 )
 from src.core.dispatcher import Dispatcher
-from src.core.effects import DamageEntity, Effect, KillEntity, MoveEntity
+from src.core.effects import DamageEntity, Effect, EmitMessage, KillEntity, MoveEntity
 from src.core.entity import EntityId
 from src.core.world import World
 from src.map.tiles import FLOOR, HORIZONTAL_WALL, VERTICAL_WALL
@@ -27,7 +27,7 @@ from src.systems.obstruction_system import ObstructionSystem
 class SequenceRng(random.Random):
     def __init__(self, values: list[int]) -> None:
         super().__init__(0)
-        self.values = values
+        self.values = list(values)
 
     def randint(self, low: int, high: int) -> int:
         if not self.values:
@@ -199,3 +199,7 @@ def apply_world_effects(world: World, effects: Iterable[Effect]) -> None:
             stats.hit_points = max(0, stats.hit_points - effect.amount)
         elif isinstance(effect, KillEntity):
             world.remove_entity(effect.entity)
+        elif isinstance(effect, EmitMessage):
+            continue
+        else:
+            raise AssertionError(f"Unsupported test effect: {effect!r}")

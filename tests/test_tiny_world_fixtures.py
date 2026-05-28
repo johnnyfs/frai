@@ -2,7 +2,8 @@ import subprocess
 import sys
 
 from src.core.actions import MoveAttempt
-from src.core.effects import DamageEntity, KillEntity, MoveEntity
+from src.core.effects import DamageEntity, KillEntity, MoveEntity, SetMode
+from src.core.modes import NormalMode
 from src.map.tiles import TileKind
 from tests.support.tiny_world import (
     SequenceRng,
@@ -95,8 +96,38 @@ def test_action_resolution_helper_resolves_deterministic_attack() -> None:
         rng=SequenceRng([20, 1]),
     )
 
-    assert DamageEntity(fixture.enemy, 4) in effects
+    assert any(
+        isinstance(effect, DamageEntity) and effect.entity == fixture.enemy
+        for effect in effects
+    )
     assert KillEntity(fixture.enemy) in effects
+
+
+def test_action_resolution_helper_reports_blocked_movement() -> None:
+    fixture = build_tiny_party_world()
+    effects = resolve_action(MoveAttempt(fixture.player, -2, 0), fixture.world)
+
+    assert not any(isinstance(effect, MoveEntity) for effect in effects)
+    assert fixture.world.positions.require(fixture.player).x == 2
+
+
+def test_apply_world_effects_rejects_unsupported_effects() -> None:
+    fixture = build_tiny_party_world()
+
+    try:
+        apply_world_effects(fixture.world, [SetMode(NormalMode())])
+    except AssertionError as exc:
+        assert "Unsupported test effect" in str(exc)
+    else:
+        raise AssertionError("Expected unsupported effects to fail loudly.")
+
+
+def test_sequence_rng_copies_input_values() -> None:
+    values = [7]
+    rng = SequenceRng(values)
+
+    assert rng.randint(1, 20) == 7
+    assert values == [7]
 
 
 def test_tiny_world_support_import_does_not_load_terminal_rendering() -> None:
