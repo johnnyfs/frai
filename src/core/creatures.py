@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from src.core.components import CombatStats, Creature, Weapon
+from src.core.components import AI, AIBehaviorType, CombatStats, Creature, Weapon
 from src.core.loot import DropTable, GoldDrop, ItemDrop
 
 
@@ -13,6 +13,7 @@ class CreatureSpec:
     stats: CombatStats
     weapon: Weapon
     loot: DropTable = field(default_factory=DropTable)
+    ai: AI | None = None
 
 
 CREATURES: dict[str, CreatureSpec] = {
@@ -63,6 +64,96 @@ CREATURES: dict[str, CreatureSpec] = {
             proficiency_bonus=2,
         ),
         weapon=Weapon("bite", 2, "piercing", ability="DEX"),
+    ),
+    # M15 dungeon level 1 signature monster. Low HP and modest damage:
+    # a level-1 party should clear a small group without spending
+    # resources. The WANDER behaviour gives them a "rats-in-a-room"
+    # feel — they shuffle around tiles rather than beelining the
+    # player, so noise + line-of-sight matters.
+    "kobold_scout": CreatureSpec(
+        key="kobold_scout",
+        name="kobold scout",
+        glyph="k",
+        attack_verb="stabs",
+        stats=CombatStats(
+            armor_class=12,
+            hit_points=4,
+            max_hit_points=4,
+            strength=8,
+            dexterity=15,
+            constitution=9,
+            proficiency_bonus=2,
+        ),
+        weapon=Weapon("dagger", 4, "piercing", ability="DEX", finesse=True),
+        loot=DropTable(
+            entries=(
+                GoldDrop(amount_min=1, amount_max=3),
+            )
+        ),
+        ai=AI(behavior=AIBehaviorType.WANDER, attack_range=1, preferred_range=1),
+    ),
+    # M15 dungeon level 2 signature monster. Tougher than the scout
+    # and uses a real weapon (shortsword) so PCs feel the step up.
+    # Standard CHASE behaviour: they hunt the party.
+    "kobold_soldier": CreatureSpec(
+        key="kobold_soldier",
+        name="kobold soldier",
+        glyph="k",
+        attack_verb="slashes",
+        stats=CombatStats(
+            armor_class=13,
+            hit_points=9,
+            max_hit_points=9,
+            strength=11,
+            dexterity=14,
+            constitution=11,
+            proficiency_bonus=2,
+        ),
+        weapon=Weapon("shortsword", 6, "piercing", ability="DEX", finesse=True),
+        loot=DropTable(
+            entries=(
+                GoldDrop(amount_min=2, amount_max=6),
+                ItemDrop(
+                    item_id="weapon.shortsword",
+                    probability=0.25,
+                    quantity_min=1,
+                    quantity_max=1,
+                ),
+            )
+        ),
+        ai=AI(behavior=AIBehaviorType.CHASE, attack_range=1, preferred_range=1),
+    ),
+    # M15 dungeon level 3 signature monster (boss escort). Heavier
+    # mace damage and a meatier HP pool so the warlord's room isn't
+    # a free trip. Still survivable by a level-1 party — these are
+    # tuned so one elite + the boss together don't auto-down a PC.
+    "kobold_elite": CreatureSpec(
+        key="kobold_elite",
+        name="kobold elite",
+        glyph="k",
+        attack_verb="bashes",
+        stats=CombatStats(
+            armor_class=14,
+            hit_points=14,
+            max_hit_points=14,
+            strength=13,
+            dexterity=13,
+            constitution=12,
+            proficiency_bonus=2,
+        ),
+        weapon=Weapon("mace", 6, "bludgeoning", ability="STR"),
+        loot=DropTable(
+            entries=(
+                GoldDrop(amount_min=4, amount_max=10),
+                ItemDrop(
+                    item_id="weapon.mace",
+                    probability=0.5,
+                    quantity_min=1,
+                    quantity_max=1,
+                ),
+            )
+        ),
+        ai=AI(behavior=AIBehaviorType.CHASE, attack_range=1, preferred_range=1),
     ),
     "goblin": CreatureSpec(
         key="goblin",
