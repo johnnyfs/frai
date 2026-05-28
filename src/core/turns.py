@@ -62,11 +62,11 @@ class ActivationState:
         self.movement_used = 0.0
         self.action_used = False
         self.bonus_action_used = False
+        self.reaction_used = False
         self.extra_actions_used = 0
 
-    def reset_for_round(self) -> None:
+    def reset_for_activation(self) -> None:
         self.reset_for_turn()
-        self.reaction_used = False
 
 
 def movement_cost(dx: int, dy: int) -> float:

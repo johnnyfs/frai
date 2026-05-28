@@ -141,6 +141,38 @@ def test_battle_mode_uses_space_to_rotate_active_party_focus() -> None:
     assert app.focus == player
 
 
+def test_turn_advance_resets_resources_without_dropping_grants() -> None:
+    app = create_app()
+    app.handle_key(ord("y"))
+    player, companion = app.party
+    frog = next(iter(app.world.creatures.values))
+    for entity in list(app.world.creatures.values):
+        if entity != frog:
+            app.world.remove_entity(entity)
+    app.world.positions.require(player).x = 160
+    app.world.positions.require(player).y = 40
+    app.world.positions.require(companion).x = 162
+    app.world.positions.require(companion).y = 40
+    app.world.positions.require(frog).x = 150
+    app.world.positions.require(frog).y = 40
+    app.activation.extra_actions_total = 1
+    app.activation.spend_movement(3)
+    app.activation.spend_action()
+    app.activation.spend_bonus_action()
+    app.activation.spend_reaction()
+    app.activation.spend_extra_action()
+
+    app.handle_key(ord(" "))
+
+    assert app.active_actor() == companion
+    assert app.activation.movement_used == 0
+    assert app.activation.action_used is False
+    assert app.activation.bonus_action_used is False
+    assert app.activation.reaction_used is False
+    assert app.activation.extra_actions_used == 0
+    assert app.activation.extra_actions_total == 1
+
+
 def test_movement_spends_budget_and_blocks_when_exhausted() -> None:
     app = create_app()
     app.handle_key(ord("y"))

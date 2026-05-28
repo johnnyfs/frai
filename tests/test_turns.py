@@ -34,7 +34,7 @@ def test_activation_state_tracks_extra_actions() -> None:
     assert activation.spend_extra_action() is False
 
 
-def test_activation_turn_reset_preserves_reaction_until_round_reset() -> None:
+def test_activation_reset_clears_turn_resources_and_preserves_grants() -> None:
     activation = ActivationState(extra_actions_total=1)
     activation.spend_movement(3)
     activation.spend_action()
@@ -47,12 +47,9 @@ def test_activation_turn_reset_preserves_reaction_until_round_reset() -> None:
     assert activation.movement_used == 0
     assert activation.action_used is False
     assert activation.bonus_action_used is False
-    assert activation.extra_actions_used == 0
-    assert activation.reaction_used is True
-
-    activation.reset_for_round()
-
     assert activation.reaction_used is False
+    assert activation.extra_actions_used == 0
+    assert activation.extra_actions_total == 1
 
 
 def test_activation_state_tracks_movement_budget() -> None:

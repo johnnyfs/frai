@@ -141,7 +141,7 @@ class App:
         if next_mode == self.major_mode:
             return
         self.major_mode = next_mode
-        self.activation = ActivationState()
+        self.activation.reset_for_activation()
         if not is_turn_based(next_mode):
             self.active_party_index = 0
 
@@ -213,14 +213,14 @@ class App:
         for index in range(self.active_party_index + 1, len(self.party)):
             if _can_take_turn(self.world, self.party[index]):
                 self.active_party_index = index
-                self.activation = ActivationState()
+                self.activation.reset_for_activation()
                 return
         if self.major_mode == "battle":
             self.run_enemy_activations()
         for index, entity in enumerate(self.party):
             if _can_take_turn(self.world, entity):
                 self.active_party_index = index
-                self.activation = ActivationState()
+                self.activation.reset_for_activation()
                 return
 
     def run_enemy_activations(self) -> None:
