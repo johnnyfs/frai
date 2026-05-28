@@ -36,7 +36,11 @@ if TYPE_CHECKING:
 # it in place or return a replacement. Returning ``None`` (the common
 # case) leaves the harness using the same App instance; returning a
 # fresh ``App`` lets a fixture replace the world wholesale.
-ScenarioBuilder = Callable[["App"], "App | None"]
+ScenarioBuilder = Callable[..., "App | None"]
+"""Scenario builders accept ``(app)`` or ``(app, rng)``; the harness
+passes the seeded ``random.Random`` as a second positional argument
+when the builder accepts it. Use ``rng`` to seed any fixture-local
+randomness so harness ``seed`` reaches builders."""
 
 
 @dataclass(frozen=True, slots=True)

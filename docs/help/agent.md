@@ -210,28 +210,69 @@ the M37 test suite asserts this.
 both accept an optional RNG so the harness can pin the starting party.
 Interactive launches still pass `None` and get fresh rolls.
 
-### Minimal fixture example (M38 will register fixtures here)
+### Fixture catalog (M38)
+
+`src.testing.fixtures` registers a curated set of scenarios at import
+time. The `/playtest` standing agent picks targets from this catalog,
+and CI integration tests pin to specific names. All fixtures load via
+`PlaytestHarness(scenario_name="<name>")` and surface a four-member
+party in the play screen at t=0.
+
+| Name                | Exercises                                | Geometry / payload                                                     |
+| ---                 | ---                                      | ---                                                                    |
+| `combat_simple`     | Adjacent melee, forced turn-based mode    | Two kobolds adjacent to the player at (player+1, 0) and (0, player+1). |
+| `combat_archer`     | M10 RANGED AI behaviour, ranged attacks   | One kobold archer six tiles east; ranged AI with preferred_range=4.    |
+| `door_locked`       | M9 doors + M26 skill-check lock pick      | Locked door one tile east; party is Rogue with Sleight of Hand.        |
+| `trap_armed`        | M9 trap + disarm-check path                | Armed trap two tiles east; party is Rogue with Sleight of Hand.        |
+| `container_loot`    | M9 OpenEntity + M30 ground pickup         | Closed chest two tiles east holding dagger, healing potion, 25gp.      |
+| `shop_basic`        | M12 buy/sell                               | NPC shopkeeper one tile east; club, shortsword, leather armor, potion. |
+| `vision_corridor`   | M19 LOS clipping                          | 31x5 corridor; kobold at the east end is outside the radius-10 LOS.    |
+| `hostile_far`       | LOS hiding non-visible hostile             | 30x30 room; kobold in the far corner > 10 tiles from the party.        |
+| `open_terrain`      | M22 autowalk to step bound                 | 30x10 empty room; companions parked along the south wall.              |
+
+#### Picking a fixture
+
+- For *combat correctness regressions*: `combat_simple` (every melee
+  attack path runs) or `combat_archer` (ranged attack + AI distancing).
+- For *interaction primitives (M9)*: `door_locked` for the lock-pick
+  branch, `trap_armed` for the disarm branch, `container_loot` for
+  the open-container branch.
+- For *economy/shop (M12)*: `shop_basic` — the only fixture that
+  surfaces a `Shop` component, the only one that stays in `explore`
+  with a populated NPC inventory.
+- For *vision/autowalk (M19, M22)*: `vision_corridor`,
+  `hostile_far`, `open_terrain`. Note that
+  `hostiles_requiring_battle` is currently global, so the autowalk
+  interrupt for the first two fires as `combat_started` rather than
+  `new_hostile_visible` — the geometry is set up so a future M28
+  faction/awareness refactor can switch the trigger without
+  rewriting the fixtures.
+
+#### Adding a new fixture
+
+Register a `Scenario` in
+`src.testing.fixtures.scenarios._FIXTURES` (or via a side-effect
+import that calls `register(Scenario(...))`). The builder receives the
+default-seeded App and should return a replacement App built via
+`make_fixture_app` in `_helpers.py` — that keeps the seed contract
+clean. Tiny worlds (≤ 30x30) are preferred; the playtester loops over
+the catalog and a giant world per fixture would slow CI noticeably.
 
 ```python
-from src.core.modes import UIMode
 from src.testing.scenarios import Scenario, register
 
-def open_field_builder(app):
-    """A tiny smoke fixture: drop straight into play mode."""
+def my_builder(app):
+    """Custom smoke fixture: drop straight into play mode."""
+    from src.core.modes import UIMode
     app.ui_mode = UIMode.play
     return None  # mutates app in place; returning None keeps it.
 
 register(Scenario(
-    name="open_field",
-    builder=open_field_builder,
-    description="Standard create_app world, in play mode from t=0.",
+    name="my_smoke",
+    builder=my_builder,
+    description="Default world, in play mode from t=0.",
 ))
 ```
-
-Once registered, an agent can spin the harness up with
-`PlaytestHarness(scenario_name="open_field")` and start running
-scripts immediately. M38 is the milestone that populates the registry
-with real fixtures (combat, dungeon, shop, etc.).
 
 ### Notes on environment
 
