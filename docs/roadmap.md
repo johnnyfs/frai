@@ -85,7 +85,7 @@ Architecture direction:
 | M10 | Combat variety and AI behaviors                    | M4, M7                      | #11               | complete   |
 | M11 | Basic spells and effects                           | M4, M5                      | pending           | pending    |
 | M12 | Items/equipment/shop                               | M5, M7                      | #10               | complete   |
-| M13 | NPC and minimal dialogue                           | M6, M8                      | pending           | pending    |
+| M13 | NPC and minimal dialogue                           | M6, M8                      | pending           | complete   |
 | M14 | Quest path                                         | M8, M10, M11, M12, M13      | pending           | pending    |
 | M15 | Boss/villain and dungeon balancing                 | M10, M11, M14               | pending           | pending    |
 | M16 | Save/restore architecture                          | M1, M5, M8, M12             | #67               | complete   |

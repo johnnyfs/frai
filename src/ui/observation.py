@@ -479,6 +479,8 @@ def _non_creature_kind(world: Any, entity: EntityId) -> str | None:
         return "trap"
     if world.corpses.has(entity):
         return "corpse"
+    if world.npcs.has(entity):
+        return "npc"
     if world.inventories.has(entity):
         # Loose ground-drop entities (M30): Inventory + Position with
         # no creature/container/corpse marker. Tagging them so an
@@ -572,6 +574,12 @@ def _available_actions(
             "targeting.confirm",
             "targeting.cancel",
         ]
+    if ui_mode is UIMode.dialogue:
+        # M13: only option selection / close are legal while the
+        # dialogue modal is up.
+        return ["dialogue.select_option", "dialogue.close"]
+    if ui_mode is UIMode.shop:
+        return ["shop.close"]
     if ui_mode is not UIMode.play or active is None:
         return []
 
@@ -667,8 +675,31 @@ def _modal_snapshot(app: Any) -> ModalSnapshot | None:
                 if examine_lines:
                     options.append(f"examine={' | '.join(examine_lines)}")
         return ModalSnapshot(kind="targeting", options=options)
-    # Future modal kinds (dialogue, shop, examine, help) just report
-    # the kind; option content will be filled in as those land.
+    if ui_mode is UIMode.dialogue:
+        # M13: surface the speaker, the current line, and the option
+        # labels so an agentic playtester can plan its selection.
+        dialogue = getattr(app, "dialogue", None)
+        options: list[str] = []
+        if dialogue is not None:
+            node = dialogue.node()
+            speaker_name = app.world.name_for(dialogue.speaker)
+            options.append(f"speaker={speaker_name}")
+            options.append(f"node={dialogue.current_node}")
+            options.append(f"line={node.line.text}")
+            for index, option in enumerate(node.options):
+                options.append(f"option_{index + 1}={option.label}")
+            options.append("close")
+        return ModalSnapshot(kind="dialogue", options=options)
+    if ui_mode is UIMode.shop:
+        partner = getattr(app, "shop_partner", None)
+        options = ["close"]
+        if partner is not None:
+            shop = app.world.shops.get(partner)
+            if shop is not None:
+                options.append(f"shopkeeper={shop.name}")
+        return ModalSnapshot(kind="shop", options=options)
+    # Future modal kinds (examine, help) just report the kind;
+    # option content will be filled in as those land.
     return ModalSnapshot(kind=ui_mode.value, options=[])
 
 

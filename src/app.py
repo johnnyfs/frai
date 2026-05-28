@@ -19,6 +19,13 @@ from src.core.components import (
 )
 from src.core.character_creation import CharacterCreationState, CharacterSheet
 from src.core.conditions import tick_conditions
+from src.core.dialogue import (
+    CloseDialogueEffect,
+    DialogueOption,
+    DialogueState,
+    OpenShopEffect,
+    RecruitEffect,
+)
 from src.core.game_state import GameState
 from src.core.items import add_item, armor_item_id_for_name, weapon_item_id_for_name
 from src.core.effects import (
@@ -116,6 +123,17 @@ class App:
     # save shape) — targeting is a per-input modal and a save written
     # mid-modal drops the in-flight selection.
     targeting: TargetingState | None = None
+    # M13 transient dialogue modal state. When non-None and
+    # ``ui_mode`` is :class:`UIMode.dialogue`, the App owns option
+    # input directly (number keys, arrow keys, Enter, Esc). Like
+    # ``targeting``, this field is intentionally absent from the
+    # save aggregate -- a save written mid-conversation simply drops
+    # the in-flight modal; the player lands back at the play screen.
+    dialogue: DialogueState | None = None
+    # M13 shop-partner tracking. Set when a dialogue option opens
+    # the shop screen so the M17 shop UI knows which shopkeeper the
+    # player is dealing with. Transient -- cleared on shop close.
+    shop_partner: EntityId | None = None
     loot_rng: random.Random = field(default_factory=random.Random)
     effect_applier: EffectApplier = field(init=False)
 
@@ -314,6 +332,15 @@ class App:
         if self.ui_mode is UIMode.targeting and self.targeting is not None:
             self._handle_targeting_key(key)
             return
+        # M13 dialogue modal owns all input while ``ui_mode == dialogue``.
+        # Number keys (1..9) and arrow keys + Enter select an option;
+        # Esc / q close the dialogue with no effect. We deliberately
+        # don't fall through to ``map_key`` here for the same reason
+        # the targeting modal owns its keys -- stray inventory/quit
+        # keys must not leak through a stacked modal.
+        if self.ui_mode is UIMode.dialogue and self.dialogue is not None:
+            self._handle_dialogue_key(key)
+            return
         self.sync_play_mode()
         # Autowalk (M22): a capital direction key initiates a repeated
         # move in that direction. The detection happens before
@@ -359,7 +386,12 @@ class App:
             if action.dx == 0 and action.dy == 0:
                 action = InteractAttempt(action.actor, self.facing[0], self.facing[1], action.check_result)
             self.apply_effects(self._handle_interaction(action))
-            if not is_turn_based_play(self.turn.play_mode):
+            # M13: dialogue open is a pure UI modal -- no world time
+            # advances and no action is consumed (the consume check
+            # already lives in ``_handle_interaction`` for non-NPC
+            # interactions). Detect the mode flip and skip the tick.
+            opened_modal = self.ui_mode is not UIMode.play
+            if not opened_modal and not is_turn_based_play(self.turn.play_mode):
                 self._tick_world_clock(SECONDS_PER_TURN)
             self.sync_play_mode()
             return
@@ -588,6 +620,13 @@ class App:
         return [EmitMessage(message)]
 
     def _handle_interaction(self, action: InteractAttempt) -> list[Effect]:
+        # M13: if the targeted tile holds an NPC, open the dialogue
+        # modal instead of running the door/lock/trap/container
+        # interaction. Dialogue is a UI modal, not a world action -
+        # it does not consume the actor's action even in turn-based
+        # play.
+        if self._try_open_dialogue_from_interaction(action):
+            return []
         if is_turn_based_play(self.turn.play_mode):
             if self.turn.active_activation.action_used:
                 return [EmitMessage("Action already used.")]
@@ -595,6 +634,216 @@ class App:
             self.turn.consume_action()
             return effects
         return self.resolve_action(action)
+
+    # ------------------------------------------------------------------
+    # Dialogue (M13)
+    # ------------------------------------------------------------------
+
+    def _try_open_dialogue_from_interaction(self, action: InteractAttempt) -> bool:
+        """If ``action`` targets an NPC, open dialogue and return True.
+
+        Returns ``False`` when there is no NPC at the targeted tile so
+        the normal interaction path (doors/locks/traps/containers)
+        can run. Opening the dialogue itself does not consume the
+        actor's action - it's a UI modal.
+        """
+
+        position = self.world.positions.get(action.actor)
+        if position is None:
+            return False
+        target_x = position.x + action.dx
+        target_y = position.y + action.dy
+        npc_entity, npc_dialogue = self._find_npc_dialogue_at(target_x, target_y)
+        if npc_entity is None or npc_dialogue is None:
+            return False
+        self.begin_dialogue(npc_entity, npc_dialogue.tree)
+        return True
+
+    def _find_npc_dialogue_at(self, x: int, y: int):
+        """Return ``(entity, NPCDialogue)`` for the first NPC at ``(x, y)``."""
+
+        for entity in self.world.entities_at(x, y):
+            if not self.world.npcs.has(entity):
+                continue
+            dialogue = self.world.npc_dialogues.get(entity)
+            if dialogue is None:
+                continue
+            return entity, dialogue
+        return None, None
+
+    def begin_dialogue(self, speaker: EntityId, tree) -> None:
+        """Open the dialogue modal with ``speaker`` as the NPC.
+
+        Records the previous :class:`UIMode` so closing the modal
+        returns the player to wherever they were (typically the play
+        screen). Emits the opening line into the message log so the
+        player has a record once the modal closes.
+        """
+
+        from src.core.dialogue import DialogueTree
+
+        if not isinstance(tree, DialogueTree):
+            raise TypeError(f"begin_dialogue expects DialogueTree, got {type(tree)!r}")
+        previous = self.ui_mode.value
+        self.dialogue = DialogueState.begin(
+            speaker=speaker,
+            tree=tree,
+            previous_mode=previous,
+        )
+        self.ui_mode = UIMode.dialogue
+
+    def close_dialogue(self) -> None:
+        """Close the dialogue modal, restoring the previous UI mode.
+
+        The player is restored to whichever screen they were on when
+        the modal opened (typically :class:`UIMode.play`). The
+        in-flight :class:`DialogueState` is cleared.
+        """
+
+        state = self.dialogue
+        previous = state.previous_mode if state is not None else None
+        self.dialogue = None
+        try:
+            restored = UIMode(previous) if previous is not None else UIMode.play
+        except ValueError:
+            restored = UIMode.play
+        self.ui_mode = restored
+
+    def select_dialogue_option(self, index: int) -> None:
+        """Select option ``index`` (0-based) on the current node.
+
+        Out-of-range selections are silently ignored. The selected
+        option's effect (if any) is resolved, then navigation to
+        ``next_node`` happens (if set), otherwise the modal closes.
+        """
+
+        state = self.dialogue
+        if state is None:
+            return
+        node = state.node()
+        if not (0 <= index < len(node.options)):
+            return
+        option = node.options[index]
+        self._apply_dialogue_option(option)
+
+    def _apply_dialogue_option(self, option: DialogueOption) -> None:
+        """Resolve ``option``'s effect and follow its ``next_node``."""
+
+        state = self.dialogue
+        if state is None:
+            return
+        # Effects first so a recruit/shop hand-off completes before
+        # we navigate. RecruitEffect implicitly closes the modal so
+        # we early-return after it fires.
+        effect = option.effect
+        if isinstance(effect, RecruitEffect):
+            self._apply_recruit_effect(state.speaker)
+            self.close_dialogue()
+            return
+        if isinstance(effect, OpenShopEffect):
+            self._apply_open_shop_effect(state.speaker)
+            return
+        # An explicit CloseDialogueEffect is treated like no effect;
+        # navigation rules below handle the close.
+        _ = effect if isinstance(effect, CloseDialogueEffect) else None
+
+        if option.next_node is None:
+            self.close_dialogue()
+            return
+        state.advance_to(option.next_node)
+
+    def _apply_recruit_effect(self, npc_entity: EntityId) -> None:
+        """Add ``npc_entity`` to the party and remove it from the world.
+
+        The NPC marker, dialogue payload, presentation, and blocker
+        are stripped so the entity is no longer treated as a
+        standing NPC. The renderer projects party glyphs via
+        :class:`PartyState.members`, so the entity will now render
+        as ``#`` (or ``@`` if it ever becomes the lead).
+        """
+
+        if self.party.is_member(npc_entity):
+            self.messages.emit("Already in your party.")
+            return
+        self.party.recruit(npc_entity)
+        world = self.world
+        # Strip NPC-only marker/payload; keep position, character
+        # sheet, and combat stats so the entity is a working party
+        # member from the next tick.
+        world.npcs.values.pop(npc_entity, None)
+        world.npc_dialogues.values.pop(npc_entity, None)
+        # Switch faction to the party so awareness queries treat the
+        # new member as friendly. The previous faction (typically
+        # "town") is dropped wholesale -- M28 doesn't need the
+        # original on a party member.
+        world.factions.add(npc_entity, Faction(FactionId.PLAYER_PARTY.value))
+        # Mark as player-controlled and refresh vision so the
+        # camera/UI immediately treats them as part of the party.
+        world.player_controlled.add(npc_entity, PlayerControlled())
+        name = world.name_for(npc_entity)
+        self.messages.emit(f"{name} joined your party.")
+        self.refresh_vision()
+
+    def _apply_open_shop_effect(self, shopkeeper: EntityId) -> None:
+        """Switch the UI to the shop screen for ``shopkeeper``.
+
+        Does not perform any inventory mutations -- the shop screen
+        itself (M17 follow-up) drives buy/sell. We just record the
+        shopkeeper id and flip the mode.
+        """
+
+        if not self.world.shops.has(shopkeeper):
+            self.messages.emit("They are not running a shop.")
+            self.close_dialogue()
+            return
+        self.shop_partner = shopkeeper
+        self.dialogue = None
+        self.ui_mode = UIMode.shop
+
+    def _handle_dialogue_key(self, key: int) -> None:
+        """Number / arrow / Enter / Esc input while the dialogue modal is open.
+
+        Bindings:
+
+        - ``1..9``: select the matching option (1 == first)
+        - ``Esc`` or ``q``: close the modal (no effect)
+        - ``Enter`` / ``Space``: on a no-option terminal node, close
+          the modal; otherwise treated as "select option 1" so a
+          single-option node (info NPC) feels natural to dismiss.
+
+        Anything else is ignored.
+        """
+
+        state = self.dialogue
+        if state is None:
+            self.ui_mode = UIMode.play
+            return
+
+        try:
+            key_char = chr(key).lower() if 0 <= key <= 255 else ""
+        except ValueError:
+            key_char = ""
+
+        # Cancel.
+        if key == 27 or key_char == "q":
+            self.close_dialogue()
+            return
+
+        node = state.node()
+        # Number-key selection: 1..9 maps to option index 0..8.
+        if key_char.isdigit() and key_char != "0":
+            index = int(key_char) - 1
+            self.select_dialogue_option(index)
+            return
+
+        # Enter / Space: select option 1 on a single-option node, or
+        # close the modal on a terminal node.
+        if key in (curses.KEY_ENTER, 10, 13) or key_char == " ":
+            if not node.options:
+                self.close_dialogue()
+                return
+            self.select_dialogue_option(0)
+            return
 
     def _resolve_inventory_drop_key(self) -> DropItemAttempt | None:
         """Choose what the active actor drops when `d` is pressed in inventory.
@@ -1144,6 +1393,7 @@ def _run_curses(stdscr: curses.window) -> None:
             targeting_cursor=targeting.cursor if targeting is not None else None,
             targeting_origin=targeting.origin if targeting is not None else None,
             targeting_range=targeting.range if targeting is not None else 0,
+            dialogue=app.dialogue,
         )
         key = stdscr.getch()
         if key == curses.KEY_RESIZE:

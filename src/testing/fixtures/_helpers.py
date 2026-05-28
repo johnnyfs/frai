@@ -509,6 +509,118 @@ def spawn_chest(
     return entity
 
 
+def spawn_info_npc(
+    world: World,
+    x: int,
+    y: int,
+    *,
+    name: str,
+    line: str,
+) -> EntityId:
+    """Add an :class:`NPCKind.INFO` NPC that speaks one line on ``e``.
+
+    The NPC carries the canonical M28 ``town`` faction so it stays
+    neutral. The :class:`DialogueTree` is the one-node tree built by
+    :func:`info_tree`. Useful for playtest fixtures that want to
+    exercise the dialogue modal end-to-end.
+    """
+
+    from src.core.components import NPC, NPCDialogue, NPCKind
+    from src.core.dialogue import info_tree
+
+    _require_open_spawn_tile(world, x, y, "info NPC")
+    entity = world.create_entity()
+    world.positions.add(entity, Position(x=x, y=y))
+    world.presentations.add(entity, Presentation("@"))
+    world.names.add(entity, Name(name))
+    world.factions.add(entity, Faction("town"))
+    world.blockers.add(entity, BlocksMovement("occupied"))
+    world.npcs.add(entity, NPC(kind=NPCKind.INFO))
+    world.npc_dialogues.add(
+        entity, NPCDialogue(tree=info_tree(speaker_id=name, text=line))
+    )
+    return entity
+
+
+def spawn_recruit_npc(
+    world: World,
+    x: int,
+    y: int,
+    *,
+    name: str,
+    ask_text: str = "Looking for sword work. Join up?",
+    accept_text: str = "Then you have my blade.",
+) -> EntityId:
+    """Add an :class:`NPCKind.RECRUIT` NPC offering to join the party.
+
+    A minimal Fighter sheet, starter armor + weapon, and a small
+    inventory are attached so accepting the recruit gives a usable
+    party member from the next tick.
+    """
+
+    from src.core.character_creation import CharacterSheet
+    from src.core.combat import (
+        combat_stats_for_sheet,
+        starter_armor_for_class,
+        starter_weapon_for_class,
+    )
+    from src.core.components import Character, Equipment, NPC, NPCDialogue, NPCKind
+    from src.core.dialogue import recruit_tree
+    from src.core.items import (
+        add_item as items_add_item,
+        armor_item_id_for_name,
+        weapon_item_id_for_name,
+    )
+
+    sheet = CharacterSheet(
+        race="Human",
+        character_class="Fighter",
+        specialization="Champion",
+        base_attributes={
+            "STR": 14, "DEX": 12, "CON": 14, "INT": 10, "WIS": 10, "CHA": 10,
+        },
+        attributes={
+            "STR": 14, "DEX": 12, "CON": 14, "INT": 10, "WIS": 10, "CHA": 10,
+        },
+        skills=("Athletics",),
+    )
+
+    _require_open_spawn_tile(world, x, y, "recruit NPC")
+    entity = world.create_entity()
+    world.positions.add(entity, Position(x=x, y=y))
+    world.presentations.add(entity, Presentation("@"))
+    world.names.add(entity, Name(name))
+    world.factions.add(entity, Faction("town"))
+    world.blockers.add(entity, BlocksMovement("occupied"))
+    world.npcs.add(entity, NPC(kind=NPCKind.RECRUIT))
+    world.npc_dialogues.add(
+        entity,
+        NPCDialogue(
+            tree=recruit_tree(
+                speaker_id=name, ask_text=ask_text, accept_text=accept_text
+            )
+        ),
+    )
+    world.characters.add(entity, Character(sheet))
+    armor = starter_armor_for_class(sheet.character_class)
+    world.armor.add(entity, armor)
+    world.combat_stats.add(entity, combat_stats_for_sheet(sheet, armor))
+    weapon = starter_weapon_for_class(sheet.character_class)
+    world.weapons.add(entity, weapon)
+    inventory = Inventory(gold=10)
+    weapon_item_id = weapon_item_id_for_name(weapon.name)
+    armor_item_id = armor_item_id_for_name(armor.name)
+    items_add_item(inventory, weapon_item_id)
+    if armor_item_id is not None:
+        items_add_item(inventory, armor_item_id)
+    world.inventories.add(entity, inventory)
+    world.equipment.add(
+        entity,
+        Equipment(weapon_item_id=weapon_item_id, armor_item_id=armor_item_id),
+    )
+    return entity
+
+
 def spawn_shopkeeper(
     world: World,
     x: int,
@@ -517,6 +629,7 @@ def spawn_shopkeeper(
     name: str = "Quartermaster",
     gold: int = 200,
     stock: tuple[str, ...] = (),
+    with_dialogue: bool = True,
 ) -> EntityId:
     """Add a stationary shopkeeper with a stocked inventory.
 
@@ -526,12 +639,24 @@ def spawn_shopkeeper(
     machinery in :mod:`src.core.shop` reads from the :class:`Inventory`
     on the same entity.
 
+    M13: when ``with_dialogue`` is true (the default), the shopkeeper
+    also gets an :class:`NPC` marker + a :class:`shopkeeper_tree`
+    so pressing ``e`` opens the dialogue modal instead of going
+    straight through the interaction dispatcher. Pre-M13 fixtures
+    that want the bare M12 shopkeeper (no modal) pass
+    ``with_dialogue=False``.
+
     Raises :class:`RuntimeError` if ``(x, y)`` is already occupied.
     """
+    from src.core.components import NPC, NPCDialogue, NPCKind
+    from src.core.dialogue import shopkeeper_tree
+
     _require_open_spawn_tile(world, x, y, "shopkeeper")
     entity = world.create_entity()
     world.positions.add(entity, Position(x=x, y=y))
-    world.presentations.add(entity, Presentation("S"))
+    world.presentations.add(
+        entity, Presentation("@" if with_dialogue else "S")
+    )
     world.names.add(entity, Name(name))
     world.factions.add(entity, Faction("town"))
     world.blockers.add(entity, BlocksMovement("occupied"))
@@ -540,6 +665,20 @@ def spawn_shopkeeper(
     for item_id in stock:
         add_item(inventory, item_id)
     world.inventories.add(entity, inventory)
+    if with_dialogue:
+        world.npcs.add(entity, NPC(kind=NPCKind.SHOPKEEPER))
+        world.npc_dialogues.add(
+            entity,
+            NPCDialogue(
+                tree=shopkeeper_tree(
+                    speaker_id=name,
+                    greeting=(
+                        f"Welcome to {name}'s shop. "
+                        "Looking to trade?"
+                    ),
+                )
+            ),
+        )
     return entity
 
 

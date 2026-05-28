@@ -109,7 +109,7 @@ for outcome in outcomes:
 | ---                | ---                                              |
 | `h j k l y u b n`  | Rogue-style movement (west/south/north/east + diagonals). |
 | `<N><dir>`         | Repeat-movement: walk up to `N` tiles. Only valid before a movement letter. |
-| `e`                | Interact with the facing tile.                   |
+| `e`                | Interact with the facing tile (opens dialogue on adjacent NPC, M13). |
 | `,`                | Pick up items on the actor's tile.               |
 | `i`                | Open/close inventory.                            |
 | `r`                | Short rest. No-op until M34 lands.               |

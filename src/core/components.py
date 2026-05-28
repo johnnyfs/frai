@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from .character_creation import CharacterSheet
+from .dialogue import DialogueTree
 from .entity import EntityId
 from .factions import AggroOverrideList  # noqa: F401  re-exported for save/load
 from .loot import DropTable
@@ -12,6 +13,40 @@ class AIBehaviorType(str, Enum):
     FLEE = "flee"
     WANDER = "wander"
     RANGED = "ranged"
+
+
+class NPCKind(str, Enum):
+    """What flavour of NPC this is (M13).
+
+    The kind is purely informational — the dialogue tree on the NPC
+    fully describes its behaviour. ``kind`` exists so observation /
+    debug tooling and content authors can tell "this NPC is a shop
+    front" from "this NPC tells me a clue" at a glance, and so the
+    M14 quest pipeline has a stable tag to filter on.
+    """
+
+    INFO = "info"
+    RECRUIT = "recruit"
+    SHOPKEEPER = "shopkeeper"
+
+
+@dataclass(slots=True)
+class NPC:
+    """Marker component identifying an entity as an NPC.
+
+    The ``DialogueTree`` lives in a sibling ``NPCDialogue`` component
+    so the dialogue payload can be optional / replaced over the
+    course of a quest without touching the NPC marker itself.
+    """
+
+    kind: NPCKind
+
+
+@dataclass(slots=True)
+class NPCDialogue:
+    """Conversation payload for an NPC (M13)."""
+
+    tree: DialogueTree
 
 
 @dataclass(frozen=True, slots=True)
