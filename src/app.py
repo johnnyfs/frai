@@ -32,6 +32,7 @@ from src.core.modes import GameMode, GameOverMode, NormalMode, StartChoiceMode
 from src.core.turns import (
     ActivationState,
     MajorMode,
+    MOVEMENT_TOTAL_FEET,
     major_mode_for_hostiles,
     movement_cost as movement_cost_for_delta,
 )
@@ -166,9 +167,10 @@ class App:
 
         target = _hostile_target_for_move(self.world, action)
         if target is not None:
-            if not self.activation.spend_action():
+            if self.activation.action_used:
                 return [EmitMessage("Action already used.")]
             effects = self.dispatcher.dispatch(action, self.world)
+            self.activation.spend_action()
             return effects
 
         cost = movement_cost(action)
@@ -217,13 +219,13 @@ class App:
                         self.apply_effects(combat.resolve_attack(AttackAttempt(enemy, target), self.world))
                         action_used = True
                     break
-                if movement_used >= self.activation.movement_total:
+                if movement_used >= MOVEMENT_TOTAL_FEET:
                     break
                 step = _enemy_step_toward(
                     self.world,
                     enemy,
                     target,
-                    self.activation.movement_total - movement_used,
+                    MOVEMENT_TOTAL_FEET - movement_used,
                 )
                 if step is None:
                     break
