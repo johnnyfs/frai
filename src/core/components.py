@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 
 from .character_creation import CharacterSheet
@@ -80,6 +80,31 @@ class Armor:
     name: str
     base_armor_class: int
     dexterity_cap: int | None = None
+
+
+@dataclass(slots=True)
+class InventoryStack:
+    item_id: str
+    quantity: int = 1
+
+
+@dataclass(slots=True)
+class Inventory:
+    gold: int = 0
+    items: list[InventoryStack] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class Equipment:
+    weapon_item_id: str | None = None
+    armor_item_id: str | None = None
+
+
+@dataclass(slots=True)
+class Shop:
+    name: str
+    buy_markup: float = 1.0
+    sell_markdown: float = 0.5
 
 
 @dataclass(slots=True)

@@ -16,6 +16,7 @@ from src.core.character_creation import (
 )
 from src.core.config import MIN_TERMINAL_HEIGHT, MIN_TERMINAL_WIDTH, PLAYFIELD_WIDTH
 from src.core.entity import EntityId
+from src.core.items import require_item
 from src.core.modes import CharacterCreationMode, GameMode, GameOverMode, InventoryMode, StartChoiceMode
 from src.core.world import World
 from src.systems.message_system import MORE_PROMPT, MessageState
@@ -260,12 +261,30 @@ def _format_feet(value: float) -> str:
 
 def _inventory_lines(world: World, entity: EntityId) -> list[str]:
     lines: list[str] = []
+    inventory = world.inventories.get(entity)
+    if inventory is not None:
+        lines.append(f"Gold   - {inventory.gold}")
     armor = world.armor.get(entity)
     weapon = world.weapons.get(entity)
     if armor is not None and armor.name != "none":
         lines.append(f"Armor  - {armor.name} (worn)")
     if weapon is not None:
         lines.append(f"Weapon - {weapon.name} (in hand)")
+    if inventory is not None and inventory.items:
+        lines.append("Carried items")
+        equipment = world.equipment.get(entity)
+        equipped_ids = set()
+        if equipment is not None:
+            equipped_ids = {
+                item_id
+                for item_id in (equipment.weapon_item_id, equipment.armor_item_id)
+                if item_id is not None
+            }
+        for stack in inventory.items:
+            item = require_item(stack.item_id)
+            suffix = " (equipped)" if stack.item_id in equipped_ids else ""
+            quantity = f"{stack.quantity}x " if stack.quantity != 1 else ""
+            lines.append(f"- {quantity}{item.name}{suffix}")
     return lines or ["Nothing."]
 
 
