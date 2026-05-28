@@ -123,7 +123,12 @@ def _resolve_interaction(
         container = world.containers.require(target)
         if container.is_open:
             return [EmitMessage("Already open.")]
-        return [OpenEntity(target), EmitMessage("Opened.")]
+        # Mirror the door branch: opening clears the BlocksMovement so the
+        # actor can step onto the tile and use the M30 ground-pickup path
+        # (`,`/`e`) to claim the seeded inventory. RemoveBlocker is a no-op
+        # when the container had no blocker, so this is safe for both
+        # cases.
+        return [OpenEntity(target), RemoveBlocker(target), EmitMessage("Opened.")]
 
     return [EmitMessage("Nothing happens.")]
 
