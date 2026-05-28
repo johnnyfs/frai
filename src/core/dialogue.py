@@ -76,10 +76,27 @@ class OpenShopEffect:
     """
 
 
+@dataclass(frozen=True, slots=True)
+class AcceptQuestEffect:
+    """Mark a quest as accepted in the party's quest log (M14).
+
+    The ``quest_id`` is a key into :data:`src.core.quest.QUESTS`. The
+    App's dialogue resolver applies the accept (which emits the quest's
+    accept message and victory condition) when the player picks an
+    option carrying this effect. The dialogue navigation rules then
+    follow ``next_node`` as usual; the modal does not implicitly
+    close, so a quest accept can chain into a thank-you node before
+    the player dismisses the conversation.
+    """
+
+    quest_id: str
+
+
 DialogueEffect: TypeAlias = (
     CloseDialogueEffect
     | RecruitEffect
     | OpenShopEffect
+    | AcceptQuestEffect
 )
 
 
@@ -286,6 +303,56 @@ def recruit_tree(
     return DialogueTree(root="root", nodes={"root": root, "joined": joined})
 
 
+def quest_offer_tree(
+    speaker_id: str,
+    quest_id: str,
+    *,
+    pitch: str,
+    accept_response: str,
+    decline_response: str,
+    accept_label: str = "Yes, I'll take it.",
+    decline_label: str = "Not now.",
+) -> DialogueTree:
+    """Build a quest-offer dialogue tree (M14).
+
+    Three nodes: ``root`` (the pitch + accept/decline options),
+    ``accepted`` (a brief follow-up shown after the player accepts),
+    and ``declined`` (after they refuse). The accept option fires an
+    :class:`AcceptQuestEffect` keyed on ``quest_id`` and navigates to
+    ``accepted``. The decline option navigates to ``declined`` with no
+    effect. Both follow-up nodes have a single close option so the
+    modal dismisses cleanly.
+    """
+
+    root = DialogueNode(
+        line=DialogueLine(speaker_id=speaker_id, text=pitch),
+        options=(
+            DialogueOption(
+                label=accept_label,
+                next_node="accepted",
+                effect=AcceptQuestEffect(quest_id=quest_id),
+            ),
+            DialogueOption(
+                label=decline_label,
+                next_node="declined",
+                effect=None,
+            ),
+        ),
+    )
+    accepted = DialogueNode(
+        line=DialogueLine(speaker_id=speaker_id, text=accept_response),
+        options=(DialogueOption(label="Farewell.", next_node=None, effect=None),),
+    )
+    declined = DialogueNode(
+        line=DialogueLine(speaker_id=speaker_id, text=decline_response),
+        options=(DialogueOption(label="Farewell.", next_node=None, effect=None),),
+    )
+    return DialogueTree(
+        root="root",
+        nodes={"root": root, "accepted": accepted, "declined": declined},
+    )
+
+
 def shopkeeper_tree(
     speaker_id: str,
     greeting: str,
@@ -322,13 +389,18 @@ _EFFECT_KINDS: dict[str, type[DialogueEffect]] = {
     "close": CloseDialogueEffect,
     "recruit": RecruitEffect,
     "open_shop": OpenShopEffect,
+    "accept_quest": AcceptQuestEffect,
 }
 
 
 def _effect_to_dict(effect: DialogueEffect | None) -> dict[str, Any] | None:
     if effect is None:
         return None
+    if isinstance(effect, AcceptQuestEffect):
+        return {"kind": "accept_quest", "quest_id": effect.quest_id}
     for tag, cls in _EFFECT_KINDS.items():
+        if cls is AcceptQuestEffect:
+            continue
         if isinstance(effect, cls):
             return {"kind": tag}
     raise TypeError(f"Unknown DialogueEffect type: {type(effect)!r}")
@@ -338,9 +410,13 @@ def _effect_from_dict(payload: dict[str, Any] | None) -> DialogueEffect | None:
     if payload is None:
         return None
     kind = payload.get("kind")
+    if kind == "accept_quest":
+        return AcceptQuestEffect(quest_id=str(payload.get("quest_id", "")))
     cls = _EFFECT_KINDS.get(str(kind))
     if cls is None:
         return None
+    if cls is AcceptQuestEffect:
+        return AcceptQuestEffect(quest_id=str(payload.get("quest_id", "")))
     return cls()
 
 

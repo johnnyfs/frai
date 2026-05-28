@@ -14,6 +14,13 @@ no scripting language — so save / load is a plain JSON round-trip.
 | `recruit`     | `@`   | `town`  | Offers to join the party. Accepting adds them to `PartyState`.   |
 | `shopkeeper`  | `@`   | `town`  | Greets the party and offers to open the shop screen (M12 / M17). |
 
+The Hearthgate town also hosts **Captain Tane** in the tavern corner
+(south-east of the town anchor). Tane is tagged as an info NPC but
+his dialogue carries an `AcceptQuestEffect` for "The Sunken Gate"
+(M14). Picking the accept option flips the quest log to `accepted`
+and emits the victory condition into the message log. See
+[`quest.md`](quest.md) for the full quest pipeline.
+
 A joined party member renders as `#` instead of `@` because the
 renderer projects party glyphs (lead is `@`, followers are `#`). The
 recruited NPC keeps its position, character sheet, weapon, armor, and
@@ -55,6 +62,7 @@ are deliberately small:
 | `CloseDialogueEffect`  | Equivalent to "no effect, no next node" — closes the modal.                     |
 | `RecruitEffect`        | Adds the current speaker to the party and removes the NPC marker / dialogue.    |
 | `OpenShopEffect`       | Switches the UI to the shop screen and remembers the speaker as `shop_partner`. |
+| `AcceptQuestEffect`    | Flips the party quest log entry to `accepted` (M14). Does NOT close the modal — navigates to the option's `next_node` so the quest giver can show a thank-you line. |
 
 Options that set `next_node` navigate to that node within the same
 tree; options with `next_node=None` close the modal once the effect

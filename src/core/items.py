@@ -137,6 +137,16 @@ ITEMS: Mapping[str, ItemDefinition] = MappingProxyType(
             heal_amount=7,
             max_stack=10,
         ),
+        # M14 quest reward item. Carrying this in any party inventory
+        # is one of the two completion criteria for "The Sunken Gate".
+        # The value is high so a future M25 "sell to the shop for XP"
+        # path has something meaningful to price against.
+        "treasure.golden_chalice": ItemDefinition(
+            item_id="treasure.golden_chalice",
+            name="golden chalice",
+            kind=ItemKind.MISC,
+            value=500,
+        ),
     }
 )
 

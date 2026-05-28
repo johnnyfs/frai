@@ -157,6 +157,18 @@ class WorldTimeSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
+class QuestProgressSummary:
+    """A single quest's current state, surfaced to the agentic playtester (M14).
+
+    Only quests the party has interacted with appear here; the implicit
+    ``not_offered`` default is omitted to keep the snapshot terse.
+    """
+
+    quest_id: str
+    state: str
+
+
+@dataclass(frozen=True, slots=True)
 class Observation:
     """Snapshot of the agent-visible state at a single point in time."""
 
@@ -170,6 +182,7 @@ class Observation:
     available_actions: list[str]
     modal: ModalSnapshot | None
     world_time: WorldTimeSnapshot
+    quests: list[QuestProgressSummary] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         """Return a fully JSON-serializable dict representation."""
@@ -193,6 +206,10 @@ class Observation:
                 else None
             ),
             "world_time": asdict(self.world_time),
+            "quests": [
+                {"quest_id": quest.quest_id, "state": quest.state}
+                for quest in self.quests
+            ],
         }
 
     @classmethod
@@ -233,6 +250,13 @@ class Observation:
                 else None
             ),
             world_time=WorldTimeSnapshot(**payload["world_time"]),
+            quests=[
+                QuestProgressSummary(
+                    quest_id=str(item["quest_id"]),
+                    state=str(item["state"]),
+                )
+                for item in payload.get("quests", [])
+            ],
         )
 
 
@@ -348,6 +372,7 @@ def observe(app: Any) -> Observation:
     actions = _available_actions(app, active_actor, combat)
     modal = _modal_snapshot(app)
     world_time = _world_time_snapshot(world.clock)
+    quests = _quest_progress(app)
 
     return Observation(
         mode={"ui_mode": ui_mode.value, "play_mode": play_mode_value},
@@ -360,7 +385,29 @@ def observe(app: Any) -> Observation:
         available_actions=actions,
         modal=modal,
         world_time=world_time,
+        quests=quests,
     )
+
+
+def _quest_progress(app: Any) -> list[QuestProgressSummary]:
+    """Project the party's quest log into the snapshot (M14).
+
+    Returns an empty list when the party has not touched any quest yet
+    (the implicit ``not_offered`` default is omitted). Order matches
+    the log's stored order so a harness can rely on stable indices
+    across repeated polls without intervening progress.
+    """
+
+    party = getattr(app, "party", None)
+    if party is None:
+        return []
+    log = getattr(party, "quests", None)
+    if log is None:
+        return []
+    return [
+        QuestProgressSummary(quest_id=quest_id, state=state.value)
+        for quest_id, state in log.states.items()
+    ]
 
 
 # -- internal helpers ----------------------------------------------------

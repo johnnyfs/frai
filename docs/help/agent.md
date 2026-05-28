@@ -41,6 +41,7 @@ restored = Observation.from_dict(payload)
 | `available_actions` | `list[str]`                                                                 | Best-effort; consult `app.turn` once M44 lands. |
 | `modal`             | `ModalSnapshot | None`                                                      | Present whenever `ui_mode != play`. |
 | `world_time`        | `{seconds, rounds, minutes, hours}`                                         | Mirrors `app.world.clock`. |
+| `quests`            | `list[{quest_id, state}]`                                                   | M14 party quest log. Empty when the party hasn't touched any quest. `state` is one of `offered`, `accepted`, `completed`, `failed`. |
 
 ### Mode strings
 

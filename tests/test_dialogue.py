@@ -427,13 +427,17 @@ def test_dialogue_modal_ignores_world_keys_while_open() -> None:
     assert app.world.positions.require(app.player).x == player_x
 
 
-def test_world_skeleton_spawns_three_town_npcs() -> None:
+def test_world_skeleton_spawns_four_town_npcs() -> None:
     built = build_world_skeleton()
     npcs = list(built.world.npcs.values.items())
 
-    assert len(npcs) == 3
-    kinds = {component.kind for _, component in npcs}
-    assert kinds == {NPCKind.INFO, NPCKind.RECRUIT, NPCKind.SHOPKEEPER}
+    # M13 info / recruit / shopkeeper + M14 Captain Tane (quest giver,
+    # tagged as INFO until the catalogue earns a QUEST_GIVER kind).
+    assert len(npcs) == 4
+    kinds = [component.kind for _, component in npcs]
+    assert kinds.count(NPCKind.RECRUIT) == 1
+    assert kinds.count(NPCKind.SHOPKEEPER) == 1
+    assert kinds.count(NPCKind.INFO) == 2
 
 
 def test_world_skeleton_shopkeeper_has_shop_component_and_dialogue() -> None:
