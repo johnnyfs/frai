@@ -5,6 +5,9 @@ from typing import Mapping
 
 from src.core.components import Presentation
 from src.core.dialogue import DialogueState
+from src.ui.character_sheet import CharacterSheetState, render_lines as render_sheet_lines
+from src.ui.help import HelpState, wrap_body
+from src.ui.roster import RosterState, roster_line
 from src.core.character_creation import (
     ABILITIES,
     can_advance,
@@ -83,6 +86,9 @@ def render(
     targeting_origin: tuple[int, int] | None = None,
     targeting_range: int = 0,
     dialogue: DialogueState | None = None,
+    help_state: HelpState | None = None,
+    roster_state: RosterState | None = None,
+    character_sheet_state: CharacterSheetState | None = None,
 ) -> None:
     screen.clear()
     layout = Layout(width=screen.width, height=screen.height)
@@ -117,6 +123,21 @@ def render(
 
     if ui_mode is UIMode.level_up:
         _render_level_up(screen, layout, world, party)
+        return
+
+    if ui_mode is UIMode.help and help_state is not None:
+        _render_help(screen, layout, help_state)
+        return
+
+    if ui_mode is UIMode.roster and roster_state is not None:
+        _render_roster(screen, layout, roster_state)
+        return
+
+    if (
+        ui_mode is UIMode.character_sheet
+        and character_sheet_state is not None
+    ):
+        _render_character_sheet(screen, layout, character_sheet_state)
         return
 
     screen.print_line(
@@ -633,4 +654,99 @@ def _render_character_creation(
     else:
         status = "single-key choices  y confirm/continue  b back"
     _line(screen, layout, layout.status_y, status)
+    screen.refresh()
+
+
+def _render_help(screen: Screen, layout: Layout, state: HelpState) -> None:
+    """Draw the help index (when no topic is selected) or the body view.
+
+    The index shows a single-column list of topics; the cursor row
+    carries a ``>`` marker. The body view wraps the topic's markdown to
+    the playfield width, scrolling by ``state.scroll`` rows.
+    """
+
+    _line(screen, layout, layout.message_y, "Help")
+    if state.viewing is None:
+        _line(screen, layout, layout.map_top, "Topics")
+        _line(screen, layout, layout.map_top + 1, "-" * layout.playfield_width)
+        # Render the topic list. ``map_top + 3`` keeps the layout
+        # consistent with the inventory + dialogue screens.
+        topics = state.topics
+        row_offset = 3
+        max_rows = max(0, layout.map_bottom - (layout.map_top + row_offset))
+        # Scroll the index so the cursor stays on-screen for long lists.
+        first = 0
+        if state.cursor >= max_rows:
+            first = state.cursor - max_rows + 1
+        visible = topics[first : first + max_rows]
+        for offset, topic in enumerate(visible):
+            marker = ">" if (first + offset) == state.cursor else " "
+            _line(
+                screen,
+                layout,
+                layout.map_top + row_offset + offset,
+                f"{marker} {topic.title}",
+            )
+        _line(
+            screen,
+            layout,
+            layout.status_y,
+            "j/k or arrows select  Enter view  Esc/q close",
+        )
+        screen.refresh()
+        return
+
+    topic = state.viewing
+    _line(screen, layout, layout.map_top, topic.title)
+    _line(screen, layout, layout.map_top + 1, "-" * layout.playfield_width)
+    body_lines = wrap_body(topic.body, layout.playfield_width)
+    row_offset = 3
+    max_rows = max(0, layout.map_bottom - (layout.map_top + row_offset))
+    first = min(state.scroll, max(0, len(body_lines) - max_rows))
+    visible_body = body_lines[first : first + max_rows]
+    for offset, body_line in enumerate(visible_body):
+        _line(screen, layout, layout.map_top + row_offset + offset, body_line)
+    _line(
+        screen,
+        layout,
+        layout.status_y,
+        "j/k scroll  Space page  Esc/q back",
+    )
+    screen.refresh()
+
+
+def _render_roster(screen: Screen, layout: Layout, state: RosterState) -> None:
+    _line(screen, layout, layout.message_y, "Party Roster")
+    _line(screen, layout, layout.map_top, "Members")
+    _line(screen, layout, layout.map_top + 1, "-" * layout.playfield_width)
+    if not state.entries:
+        _line(screen, layout, layout.map_top + 3, "(no party members)")
+    else:
+        for offset, entry in enumerate(state.entries):
+            _line(
+                screen,
+                layout,
+                layout.map_top + 3 + offset,
+                roster_line(entry, selected=offset == state.cursor),
+            )
+    _line(
+        screen,
+        layout,
+        layout.status_y,
+        "j/k or arrows select  Enter view sheet  Esc/q close",
+    )
+    screen.refresh()
+
+
+def _render_character_sheet(
+    screen: Screen,
+    layout: Layout,
+    state: CharacterSheetState,
+) -> None:
+    view = state.view
+    _line(screen, layout, layout.message_y, "Character Sheet")
+    lines = render_sheet_lines(view)
+    for offset, body_line in enumerate(lines[: layout.playfield_height - 1]):
+        _line(screen, layout, layout.map_top + offset, body_line)
+    _line(screen, layout, layout.status_y, "Esc/q back")
     screen.refresh()

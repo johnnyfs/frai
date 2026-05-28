@@ -47,8 +47,9 @@ restored = Observation.from_dict(payload)
 ### Mode strings
 
 `ui_mode` is one of: `start`, `character_creation`, `play`, `inventory`,
-`dialogue`, `shop`, `targeting`, `examine`, `help`, `message_pager`,
-`spell_menu`, `rest_menu`, `level_up`, `quit_confirm`, `game_over`.
+`dialogue`, `shop`, `targeting`, `examine`, `help`, `roster`,
+`character_sheet`, `message_pager`, `spell_menu`, `rest_menu`,
+`level_up`, `quit_confirm`, `game_over`.
 
 `play_mode` is one of: `explore`, `turn_based`, `voluntary_turn`.
 
@@ -116,7 +117,8 @@ for outcome in outcomes:
 | `i`                | Open/close inventory.                            |
 | `r`                | Open the rest menu (M34). Send `s`/`l` to pick a kind, or `Esc` to cancel. |
 | `x`                | Open examine cursor (M21). `;` is an alias.      |
-| `?`                | Open help. No-op until M39 lands.                |
+| `?`                | Open help (M31 + M39). Index of topics; Enter drills in. |
+| `P`                | Open the party roster. Enter drills into a character sheet. |
 | `.`                | Wait one tick.                                   |
 | `Enter`            | Confirm the current modal.                       |
 | `Esc`              | Cancel the current modal.                        |

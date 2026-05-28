@@ -26,6 +26,8 @@ class UIMode(Enum):
     targeting = "targeting"
     examine = "examine"
     help = "help"
+    roster = "roster"
+    character_sheet = "character_sheet"
     message_pager = "message_pager"
     spell_menu = "spell_menu"
     rest_menu = "rest_menu"
