@@ -109,7 +109,7 @@ Architecture direction:
 | M34 | Rest system and shelter zones                      | M4, M7, M11, M27            | #21               | unassigned |
 | M35 | Agent-readable observation mode                    | (foundation)                | #58               | complete   |
 | M36 | Command scripting and agent input mode             | M22, M35                    | #68               | complete   |
-| M37 | Playtest harness                                   | M35, M36                    | #30               | unassigned |
+| M37 | Playtest harness                                   | M35, M36                    | #71               | complete   |
 | M38 | Scenario fixtures for playtesting                  | M37                         | #31               | unassigned |
 | M39 | Online help (`?`)                                  | M31                         | #32               | unassigned |
 | M40 | Playtest bug-report workflow                       | M35, M37                    | #33               | unassigned |
