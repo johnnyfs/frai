@@ -174,6 +174,33 @@ def deterministic_player_sheet(rng: random.Random) -> CharacterSheet:
     return to_character_sheet(state)
 
 
+def force_wizard_sheet(rng: random.Random) -> CharacterSheet:
+    """Roll a Wizard sheet for the M11 spell-encounter fixture.
+
+    Picks Wizard explicitly so the resulting party leader has a
+    :class:`SpellList` and slot ledger after
+    :func:`_assign_character_sheet`. Race and specialization are
+    chosen deterministically over the same seed.
+    """
+    wizard = next(option for option in CLASSES if option.name == "Wizard")
+    state = initial_character_creation_state(rng=rng)
+    state = with_selection(state, rng.choice(RACES).name)
+    state = with_selection(state, wizard.name)
+    state = with_selection(state, rng.choice(wizard.specializations))
+    for choices, count in (
+        (wizard.cantrip_choices, wizard.cantrip_count),
+        (wizard.spell_choices, wizard.spell_count),
+        (wizard.skill_choices, wizard.skill_count),
+    ):
+        for choice in rng.sample(list(choices), count):
+            state = with_selection(state, choice)
+        if count:
+            state = next_step(state)
+    while state.step != "confirm":
+        state = next_step(state)
+    return to_character_sheet(state)
+
+
 def force_rogue_sheet(rng: random.Random) -> CharacterSheet:
     """Roll a Rogue sheet that includes Sleight of Hand for lock/trap tests.
 

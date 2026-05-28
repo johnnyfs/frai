@@ -21,6 +21,8 @@ from src.core.components import Corpse, GodMode, Inventory, Name, Position, Pres
 from src.core.conditions import apply_condition, end_condition
 from src.core.effects import (
     ApplyCondition,
+    ApplyHealing,
+    ConsumeSpellSlot,
     DamageEntity,
     DisarmTrap,
     DropToGround,
@@ -156,6 +158,14 @@ class EffectApplier:
             return
         if isinstance(effect, EndCondition):
             _apply_end_condition(self._host, effect)
+            return
+
+        # Spells (M11)
+        if isinstance(effect, ApplyHealing):
+            _apply_apply_healing(self._host, effect)
+            return
+        if isinstance(effect, ConsumeSpellSlot):
+            _apply_consume_spell_slot(self._host, effect)
             return
 
         # Loot / pickup / drop (M30)
@@ -453,6 +463,44 @@ def _apply_apply_condition(host: "App", effect: ApplyCondition) -> None:
 def _apply_end_condition(host: "App", effect: EndCondition) -> None:
     """Remove every condition of ``effect.kind`` from the target."""
     end_condition(host.world, effect.entity, effect.kind)
+
+
+# ---------------------------------------------------------------------------
+# Spell effects (M11)
+# ---------------------------------------------------------------------------
+
+
+def _apply_apply_healing(host: "App", effect: ApplyHealing) -> None:
+    """Restore HP up to the entity's recorded maximum.
+
+    No-op when the entity has no combat stats. The healing is applied
+    after damage in the same effect batch (because batches dispatch in
+    list order), so a spell that heals and immediately resolves a
+    counterattack still ends up at the right HP.
+    """
+
+    stats = host.world.combat_stats.get(effect.entity)
+    if stats is None:
+        return
+    if effect.amount <= 0:
+        return
+    stats.hit_points = min(stats.max_hit_points, stats.hit_points + effect.amount)
+
+
+def _apply_consume_spell_slot(host: "App", effect: ConsumeSpellSlot) -> None:
+    """Spend one slot at ``effect.level`` from the caster's ledger.
+
+    Cantrips and casters with no ledger are silent no-ops — slot
+    accounting is decided at cast time, not at apply time, so this
+    handler only mirrors the decision.
+    """
+
+    if effect.level <= 0:
+        return
+    slots = host.world.spell_slots.get(effect.entity)
+    if slots is None:
+        return
+    slots.consume(effect.level)
 
 
 # ---------------------------------------------------------------------------

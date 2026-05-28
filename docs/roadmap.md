@@ -83,7 +83,7 @@ Architecture direction:
 | M8  | World content skeleton                             | M7                          | #8                | complete   |
 | M9  | Interaction primitives                             | M4, M7                      | #7                | complete   |
 | M10 | Combat variety and AI behaviors                    | M4, M7                      | #11               | complete   |
-| M11 | Basic spells and effects                           | M4, M5                      | pending           | pending    |
+| M11 | Basic spells and effects                           | M4, M5                      | pending           | complete   |
 | M12 | Items/equipment/shop                               | M5, M7                      | #10               | complete   |
 | M13 | NPC and minimal dialogue                           | M6, M8                      | pending           | complete   |
 | M14 | Quest path                                         | M8, M10, M11, M12, M13      | pending           | pending    |

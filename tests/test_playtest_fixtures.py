@@ -43,6 +43,7 @@ _EXPECTED_FIXTURES = (
     "vision_corridor",
     "hostile_far",
     "open_terrain",
+    "spell_encounter",
 )
 
 

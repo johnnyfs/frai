@@ -82,6 +82,20 @@ class ConditionSummary:
 
 
 @dataclass(frozen=True, slots=True)
+class SpellSlotSummary:
+    """Per-level slot ledger surfaced to the agentic playtester (M11).
+
+    ``remaining`` and ``maximum`` cover the same set of levels (a
+    level without an entry is implicitly zero on both sides). The
+    snapshot is sorted by level for stability across runs.
+    """
+
+    level: int
+    remaining: int
+    maximum: int
+
+
+@dataclass(frozen=True, slots=True)
 class ActorSummary:
     """Summary of a single party member or visible actor."""
 
@@ -93,6 +107,8 @@ class ActorSummary:
     faction: str | None = None
     glyph: str | None = None
     conditions: tuple[ConditionSummary, ...] = ()
+    spells: tuple[str, ...] = ()
+    spell_slots: tuple[SpellSlotSummary, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -238,6 +254,11 @@ def _actor_to_dict(actor: ActorSummary | None) -> dict[str, Any] | None:
         "faction": actor.faction,
         "glyph": actor.glyph,
         "conditions": [_condition_to_dict(c) for c in actor.conditions],
+        "spells": list(actor.spells),
+        "spell_slots": [
+            {"level": s.level, "remaining": s.remaining, "maximum": s.maximum}
+            for s in actor.spell_slots
+        ],
     }
 
 
@@ -254,6 +275,15 @@ def _actor_from_dict(payload: dict[str, Any] | None) -> ActorSummary | None:
         glyph=payload.get("glyph"),
         conditions=tuple(
             _condition_from_dict(item) for item in payload.get("conditions", [])
+        ),
+        spells=tuple(str(item) for item in payload.get("spells", [])),
+        spell_slots=tuple(
+            SpellSlotSummary(
+                level=int(item["level"]),
+                remaining=int(item["remaining"]),
+                maximum=int(item["maximum"]),
+            )
+            for item in payload.get("spell_slots", [])
         ),
     )
 
@@ -376,7 +406,53 @@ def _build_actor_summary(app: Any, entity: EntityId) -> ActorSummary | None:
         faction=faction.value if faction is not None else None,
         glyph=presentation.glyph if presentation is not None else None,
         conditions=_conditions_for_actor(world, entity),
+        spells=_spells_for_actor(world, entity),
+        spell_slots=_spell_slots_for_actor(world, entity),
     )
+
+
+def _spells_for_actor(world: Any, entity: EntityId) -> tuple[str, ...]:
+    """Project the actor's :class:`SpellList` into a tuple of ids.
+
+    Returns an empty tuple when the actor has no list. Order matches
+    storage order so a harness can map letters to spells the same way
+    the in-game menu does.
+    """
+    store = getattr(world, "spell_lists", None)
+    if store is None:
+        return ()
+    spell_list = store.get(entity)
+    if spell_list is None:
+        return ()
+    return tuple(spell_list.known)
+
+
+def _spell_slots_for_actor(world: Any, entity: EntityId) -> tuple[Any, ...]:
+    """Project the actor's :class:`SpellSlots` into stable per-level summaries.
+
+    Levels are sorted ascending so the snapshot order is independent
+    of the underlying dict iteration order (Python 3.7+ preserves
+    insertion order, but a harness shouldn't have to rely on that).
+    """
+    store = getattr(world, "spell_slots", None)
+    if store is None:
+        return ()
+    slots = store.get(entity)
+    if slots is None:
+        return ()
+    summaries: list[SpellSlotSummary] = []
+    levels = sorted(
+        set(slots.slots_by_level.keys()) | set(slots.max_by_level.keys())
+    )
+    for level in levels:
+        summaries.append(
+            SpellSlotSummary(
+                level=int(level),
+                remaining=int(slots.slots_by_level.get(level, 0)),
+                maximum=int(slots.max_by_level.get(level, 0)),
+            )
+        )
+    return tuple(summaries)
 
 
 def _conditions_for_actor(world: Any, entity: EntityId) -> tuple[ConditionSummary, ...]:
@@ -465,6 +541,20 @@ def _visible_entities(app: Any, active: ActorSummary | None) -> list[VisibleEnti
         )
     visible.sort(key=lambda item: (item.distance, item.id))
     return visible
+
+
+def _actor_has_spells(app: Any, entity_id: int) -> bool:
+    """True when the entity has any known spell in its :class:`SpellList`.
+
+    Read through the projection so we don't import SpellList at this
+    layer; the harness sees the same data as the in-game menu.
+    """
+    world = app.world
+    store = getattr(world, "spell_lists", None)
+    if store is None:
+        return False
+    spell_list = store.get(EntityId(entity_id))
+    return spell_list is not None and bool(spell_list.known)
 
 
 def _non_creature_kind(world: Any, entity: EntityId) -> str | None:
@@ -580,10 +670,19 @@ def _available_actions(
         return ["dialogue.select_option", "dialogue.close"]
     if ui_mode is UIMode.shop:
         return ["shop.close"]
+    if ui_mode is UIMode.spell_menu:
+        # M11: spell menu only accepts a letter pick or cancel.
+        return ["spell_menu.pick", "spell_menu.cancel"]
     if ui_mode is not UIMode.play or active is None:
         return []
 
     actions: list[str] = ["move", "interact", "inventory", "pickup", "quit"]
+    # The cast action is only meaningful when the active actor has a
+    # spell list. We surface it as the same "cast" token regardless of
+    # the catalog content so the harness sees a uniform name.
+    has_spells = active is not None and _actor_has_spells(app, active.id)
+    if has_spells:
+        actions.append("cast")
     if combat is None:
         # Explore mode: voluntary turn toggle is always available; no
         # action budget gating.
@@ -597,6 +696,8 @@ def _available_actions(
         actions.append("attack")
         actions.append("interact")
         actions.append("pickup")
+        if has_spells:
+            actions.append("cast")
     actions.append("end_turn")
     # Voluntary turn mode can be exited only when no hostiles are present;
     # the toggle is still surfaced so the agent can attempt it. The app
@@ -698,6 +799,17 @@ def _modal_snapshot(app: Any) -> ModalSnapshot | None:
             if shop is not None:
                 options.append(f"shopkeeper={shop.name}")
         return ModalSnapshot(kind="shop", options=options)
+    if ui_mode is UIMode.spell_menu:
+        # M11: surface the active actor's known spells as the modal's
+        # options so the harness can pick one without consulting the
+        # actor's spell_lists store directly.
+        active = _safe_active_actor(app)
+        options = []
+        if active is not None:
+            spell_list = app.world.spell_lists.get(active)
+            if spell_list is not None:
+                options = list(spell_list.known)
+        return ModalSnapshot(kind="spell_menu", options=options)
     # Future modal kinds (examine, help) just report the kind;
     # option content will be filled in as those land.
     return ModalSnapshot(kind=ui_mode.value, options=[])

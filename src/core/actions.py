@@ -86,6 +86,63 @@ class PickupAttempt:
 
 
 @dataclass(frozen=True, slots=True)
+class SpellMenuRequest:
+    """Open the spell-selection modal for ``actor`` (M11).
+
+    Routes through ``app.handle_key`` rather than the dispatcher
+    because opening a modal is App-state, not world state — same
+    pattern as ``InventoryRequest``.
+    """
+
+    actor: EntityId
+
+
+@dataclass(frozen=True, slots=True)
+class CloseSpellMenu:
+    """Dismiss the spell-selection modal without casting (M11)."""
+
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class SpellMenuChoice:
+    """Player picked ``spell_id`` from the spell menu (M11).
+
+    The App resolves what happens next: spells that need a target
+    open the M20 targeting modal; spells with no target (self-buff
+    placeholders) build the :class:`CastSpellAttempt` immediately.
+    """
+
+    actor: EntityId
+    spell_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class CastSpellAttempt:
+    """Actor attempts to cast ``spell_id`` (M11).
+
+    ``target_entity`` is the resolved single entity for
+    ``SINGLE_ENTITY``-kind spells, ``target_tile`` is the cursor cell
+    for ``AREA_RADIUS``-kind spells, and ``target_entities`` is the
+    tuple of friendly entities for ``FRIENDLY_GROUP``-kind spells.
+    Only the field(s) appropriate for the spell's ``target_kind``
+    need to be populated — the spell system reads the catalog entry to
+    decide which to consult.
+
+    The action is the same shape whether the spell came from the
+    player's menu, an AI's tactical choice, or a future scripted
+    encounter. The caster's slot is consumed in the resolver's
+    ``PRE_CHECK`` phase so a failed resolve doesn't burn the resource.
+    """
+
+    actor: EntityId
+    spell_id: str
+    target_entity: EntityId | None = None
+    target_tile: tuple[int, int] | None = None
+    target_entities: tuple[EntityId, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class DropItemAttempt:
     """Actor drops ``quantity`` of ``item_id`` to their tile (M30).
 
@@ -133,4 +190,8 @@ Action: TypeAlias = (
     | PickupAttempt
     | DropItemAttempt
     | ExamineRequest
+    | CastSpellAttempt
+    | SpellMenuRequest
+    | CloseSpellMenu
+    | SpellMenuChoice
 )
