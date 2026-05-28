@@ -13,6 +13,7 @@ from src.core.components import (
     Container,
     Corpse,
     Creature,
+    DeathSaves,
     Door,
     Equipment,
     ExperiencePoints,
@@ -139,6 +140,9 @@ class World:
     level_up_pending: ComponentStore[LevelUpAvailable] = field(
         default_factory=lambda: ComponentStore({})
     )
+    death_saves: ComponentStore[DeathSaves] = field(
+        default_factory=lambda: ComponentStore({})
+    )
     clock: WorldTime = field(default_factory=WorldTime)
     schedule: Schedule = field(default_factory=Schedule)
     shelter_zones: ShelterZoneRegistry = field(default_factory=ShelterZoneRegistry)
@@ -225,6 +229,7 @@ class World:
             ("awareness_trackers", self.awareness_trackers),
             ("experience_points", self.experience_points),
             ("level_up_pending", self.level_up_pending),
+            ("death_saves", self.death_saves),
         ]
 
     def name_for(self, entity: EntityId) -> str:
@@ -391,6 +396,8 @@ def _component_to_dict(component: Any) -> Any:
         return {"token": component.token}
     if isinstance(component, AwarenessTracker):
         return component.to_dict()
+    if isinstance(component, ConditionStore):
+        return component.to_dict()
     if is_dataclass(component):
         return asdict(component)
     # Fallback: best-effort string conversion. Should never trip in
@@ -499,6 +506,10 @@ def _component_from_dict(name: str, payload: Any) -> Any:
         return ExperiencePoints(**_filtered(ExperiencePoints, payload))
     if name == "level_up_pending":
         return LevelUpAvailable(**_filtered(LevelUpAvailable, payload))
+    if name == "death_saves":
+        return DeathSaves(**_filtered(DeathSaves, payload))
+    if name == "conditions":
+        return ConditionStore.from_dict(payload if isinstance(payload, dict) else {})
     return None
 
 

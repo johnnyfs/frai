@@ -105,15 +105,18 @@ turns_remaining}]` field. An empty list means "no conditions". The kind
 and duration are string-valued (the enum `value`), which keeps the
 snapshot stable across save/load round trips.
 
-## Seams for M29 (downed)
+## M29 (downed): unconscious lifecycle
 
-`unconscious` is a normal `ConditionKind`. M29 will:
+`unconscious` is a normal `ConditionKind`. M29 owns the lifecycle:
 
-1. Emit `ApplyCondition(unconscious, UntilRemoved)` when an actor's HP
-   reaches 0 instead of immediately removing them.
-2. Add the death-save state machine that decides when to clear it (via
-   `EndCondition`) versus convert to a kill.
-3. Treat `unconscious` actors as prone/incapacitated in the combat
-   resolution path.
+1. `EffectApplier._apply_damage_entity` emits
+   `ApplyCondition(unconscious, UntilRemoved)` when a player-controlled
+   actor's HP reaches 0 (instead of removing them).
+2. The death-save state machine (`src/core/death_saves.py`) decides
+   when to clear it (via `EndCondition` on healing / crit-success) or
+   convert to a kill (three failures).
+3. The condition tag is dropped when the actor recovers — either to
+   1 HP via crit-success / natural healing, or to 1 HP via a post-rest
+   stable restore.
 
-This module owns the tag and the data; M29 owns the lifecycle.
+See `docs/help/death.md` for the full M29 contract.

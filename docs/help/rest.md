@@ -166,5 +166,5 @@ the next tick after load.
   meaningfully tense.
 - **M25 leveling** will revisit the short-rest recovery to use real
   Hit Dice spends rather than the "half missing HP" simplification.
-- **M29 downed** can hook into the long-rest condition sweep to clear
-  exhaustion levels.
+- **M29 downed** hooks the start of every rest to restore stable PCs
+  (3-success downed actors) to 1 HP. See `docs/help/death.md`.

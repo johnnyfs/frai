@@ -1566,12 +1566,40 @@ class App:
         Round-boundary tick effects are dispatched through the normal
         :class:`EffectApplier` so messages, damage, and death share the
         same flow as any other gameplay effect.
+
+        M29: every downed-and-dying party member rolls one death save
+        at the end of the round. Stable PCs roll nothing (the M34 rest
+        system restores them to 1 HP). Roll effects flow through the
+        standard EffectApplier so a third success / third failure /
+        natural-20 wake-up routes through the same revival or kill
+        pipeline as any other gameplay event.
         """
         self._tick_world_clock(SECONDS_PER_ROUND)
         actors = self._condition_actors()
         effects = tick_conditions(self.world, actors, boundary="round")
         if effects:
             self.apply_effects(effects)
+        self._tick_death_saves()
+
+    def _tick_death_saves(self) -> None:
+        """Roll one death save for every downed-and-dying PC.
+
+        Iterates the party in roster order so message log entries appear
+        deterministically. Uses ``self.loot_rng`` as the d20 source so
+        seeded fixtures stay reproducible. Stable PCs (3 successes) are
+        skipped — they wait for a rest to revive.
+        """
+        from src.core.death_saves import is_dying, roll_death_save
+
+        downed = [
+            member
+            for member in self.party.members
+            if is_dying(self.world, member)
+        ]
+        for member in downed:
+            effects = roll_death_save(self.world, member, self.loot_rng)
+            if effects:
+                self.apply_effects(effects)
 
     def _tick_clock_conditions(self) -> None:
         actors = self._condition_actors()

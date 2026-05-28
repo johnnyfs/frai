@@ -131,6 +131,15 @@ def _attempt_rest(
     if zone.uses_remaining is not None and zone.uses_remaining <= 0:
         return [EmitMessage("This shelter has been used up.")]
 
+    # M29: stable PCs (3-success downed actors) restore to 1 HP at the
+    # start of every rest, before recovery / refill runs against them.
+    # Done before the encounter check so a failed rest still nudges
+    # them off the dying state — the SRD lets a stable character regain
+    # 1 HP after 1d4 hours of rest, even if interrupted.
+    from src.core.death_saves import stabilize_pcs_on_rest
+
+    stabilize_effects = stabilize_pcs_on_rest(app.world, list(app.party.members))
+
     # All checks passed — commit the rest.
     encounter_rng = rng if rng is not None else getattr(app, "loot_rng", random.Random())
     interrupted = (
@@ -143,12 +152,16 @@ def _attempt_rest(
         # to bed down), gold is NOT spent (they didn't get the service),
         # and no recovery happens. A future M14/M15 encounter deck will
         # spawn the actual interrupting monster; today we just emit a
-        # clear refusal with structured banner text.
+        # clear refusal with structured banner text. M29 stable
+        # recovery still applies — a downed-but-stable PC regains 1 HP
+        # because their state machine fired before the encounter roll.
         _advance_clock_for_kind(app, kind)
-        return [EmitMessage(_interruption_message(kind))]
+        return [*stabilize_effects, EmitMessage(_interruption_message(kind))]
 
     # Deduct cost first so the message ordering reads as "paid, rested".
-    effects: list[Effect] = []
+    # M29 stable-restore lands before the cost banner so the player
+    # sees "X recovers from unconsciousness." before "You pay 5gp."
+    effects: list[Effect] = list(stabilize_effects)
     if zone.cost > 0 and inventory is not None:
         inventory.gold -= zone.cost
         effects.append(EmitMessage(f"You pay {zone.cost}gp."))

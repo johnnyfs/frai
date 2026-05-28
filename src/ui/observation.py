@@ -82,6 +82,22 @@ class ConditionSummary:
 
 
 @dataclass(frozen=True, slots=True)
+class DeathSavesSummary:
+    """The M29 death-save tally for a downed actor.
+
+    ``stable`` is ``True`` once the actor has banked three successes —
+    they are no longer rolling but still unconscious until a rest
+    restores 1 HP. Surfaced separately from ``conditions`` so an
+    agentic playtester can plan around the failure count without
+    parsing condition payloads.
+    """
+
+    successes: int
+    failures: int
+    stable: bool
+
+
+@dataclass(frozen=True, slots=True)
 class SpellSlotSummary:
     """Per-level slot ledger surfaced to the agentic playtester (M11).
 
@@ -113,6 +129,7 @@ class ActorSummary:
     xp: int = 0
     xp_to_next: int | None = None
     level_up_pending: int | None = None
+    death_saves: DeathSavesSummary | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -322,12 +339,31 @@ def _actor_to_dict(actor: ActorSummary | None) -> dict[str, Any] | None:
         "xp": actor.xp,
         "xp_to_next": actor.xp_to_next,
         "level_up_pending": actor.level_up_pending,
+        "death_saves": (
+            {
+                "successes": actor.death_saves.successes,
+                "failures": actor.death_saves.failures,
+                "stable": actor.death_saves.stable,
+            }
+            if actor.death_saves is not None
+            else None
+        ),
     }
 
 
 def _actor_from_dict(payload: dict[str, Any] | None) -> ActorSummary | None:
     if payload is None:
         return None
+    death_saves_payload = payload.get("death_saves")
+    death_saves = (
+        DeathSavesSummary(
+            successes=int(death_saves_payload.get("successes", 0)),
+            failures=int(death_saves_payload.get("failures", 0)),
+            stable=bool(death_saves_payload.get("stable", False)),
+        )
+        if isinstance(death_saves_payload, dict)
+        else None
+    )
     return ActorSummary(
         id=int(payload["id"]),
         name=str(payload["name"]),
@@ -358,6 +394,7 @@ def _actor_from_dict(payload: dict[str, Any] | None) -> ActorSummary | None:
             if payload.get("level_up_pending") is not None
             else None
         ),
+        death_saves=death_saves,
     )
 
 
@@ -541,6 +578,22 @@ def _build_actor_summary(app: Any, entity: EntityId) -> ActorSummary | None:
         xp=xp,
         xp_to_next=xp_to_next,
         level_up_pending=pending,
+        death_saves=_death_saves_for_actor(world, entity),
+    )
+
+
+def _death_saves_for_actor(world: Any, entity: EntityId) -> DeathSavesSummary | None:
+    """Project the M29 DeathSaves row into the snapshot."""
+    store = getattr(world, "death_saves", None)
+    if store is None:
+        return None
+    saves = store.get(entity)
+    if saves is None:
+        return None
+    return DeathSavesSummary(
+        successes=int(saves.successes),
+        failures=int(saves.failures),
+        stable=bool(saves.stable),
     )
 
 
