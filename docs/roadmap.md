@@ -98,8 +98,8 @@ Architecture direction:
 | M23 | Stealth, noise, and perception                     | M4, M19, M26, M28           | #25               | unassigned |
 | M24 | Conditions, statuses, and durations                | M4, M27                     | #19               | unassigned |
 | M25 | Leveling, XP, and rewards                          | M5, M10, M14                | #27               | unassigned |
-| M26 | Skill checks and DC checks                         | M5                          | #15               | unassigned |
-| M27 | Time and clocks                                    | M4                          | #14               | unassigned |
+| M26 | Skill checks and DC checks                         | M5                          | #50               | complete   |
+| M27 | Time and clocks                                    | M4                          | #49               | complete   |
 | M28 | Faction and hostility model                        | M3, M6, M13                 | #16               | unassigned |
 | M29 | Downed, unconscious, death saves, and recovery     | M24, M34                    | #26               | unassigned |
 | M30 | Loot containers, corpses, and dropped items        | M9, M12                     | #20               | unassigned |
