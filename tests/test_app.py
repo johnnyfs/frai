@@ -336,12 +336,24 @@ def test_voluntary_turn_party_round_does_not_run_enemy_activations() -> None:
     app.sync_major_mode()
     app.handle_key(ord("t"))
     app.active_party_index = len(app.party) - 1
+    enemy_activations = 0
 
-    app.handle_key(ord(" "))
+    def count_enemy_activations() -> None:
+        nonlocal enemy_activations
+        enemy_activations += 1
+
+    original = type(app).run_enemy_activations
+    type(app).run_enemy_activations = lambda _: count_enemy_activations()
+
+    try:
+        app.handle_key(ord(" "))
+    finally:
+        type(app).run_enemy_activations = original
 
     assert app.major_mode == "turn"
     assert app.active_actor() == app.player
     assert app.messages.current == "Entered turn-based mode."
+    assert enemy_activations == 0
 
 
 def test_killing_last_hostile_switches_to_explore_mode() -> None:
