@@ -217,6 +217,37 @@ class ConsumeSpellSlot:
 
 
 @dataclass(frozen=True, slots=True)
+class GrantXP:
+    """Add ``amount`` XP to ``entity``'s :class:`ExperiencePoints` ledger (M25).
+
+    The applier creates an :class:`ExperiencePoints` component if the
+    entity doesn't already have one. After adding the XP the applier
+    checks whether the next level threshold is crossed and, if so,
+    attaches a :class:`LevelUpAvailable` marker. ``amount`` should be
+    non-negative; the applier silently no-ops a zero / negative grant.
+    """
+
+    entity: EntityId
+    amount: int
+
+
+@dataclass(frozen=True, slots=True)
+class LevelUp:
+    """Confirm the pending level-up on ``entity`` (M25).
+
+    Resolves to: bump :class:`CharacterSheet.level`, raise
+    :class:`CombatStats.max_hit_points` by ``hit_die + CON mod`` (full
+    HP gained at level up to keep the slice forgiving), refresh
+    proficiency bonus for the new level, install the post-level-up
+    spell-slot maxima for spellcasters, and clear
+    :class:`LevelUpAvailable`. No-op when the actor has no pending
+    level-up.
+    """
+
+    entity: EntityId
+
+
+@dataclass(frozen=True, slots=True)
 class DropToGround:
     """Drop ``quantity`` of ``item_id`` (or ``gold`` if item_id is None)
     from ``source``'s inventory to a fresh ground entity at (x, y).
@@ -252,6 +283,8 @@ Effect: TypeAlias = (
     | SpawnEntity
     | GrantGold
     | GrantItem
+    | GrantXP
+    | LevelUp
     | TransferInventory
     | SpawnCorpse
     | DropToGround

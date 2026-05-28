@@ -198,6 +198,32 @@ class RestMenuChoice:
 
 
 @dataclass(frozen=True, slots=True)
+class LevelUpConfirm:
+    """Player confirmed the pending level-up on ``actor`` (M25).
+
+    The level-up modal turns this action into a :class:`LevelUp`
+    effect; the modal itself does not mutate state directly. ``actor``
+    is the first party member with a pending level-up — the modal
+    only ever surfaces one at a time so the player sees what changed.
+    """
+
+    actor: EntityId
+
+
+@dataclass(frozen=True, slots=True)
+class LevelUpDismiss:
+    """Close the level-up modal without applying (M25).
+
+    The :class:`LevelUpAvailable` marker stays attached so the modal
+    can reopen on the next level-up cue (or via the future `?` /
+    debug entry). Used to escape the modal if the player wants to
+    consult the help screen first.
+    """
+
+    actor: EntityId
+
+
+@dataclass(frozen=True, slots=True)
 class ExamineRequest:
     """Open the M21 examine/look cursor over the world.
 
@@ -240,4 +266,6 @@ Action: TypeAlias = (
     | RestMenuRequest
     | CloseRestMenu
     | RestMenuChoice
+    | LevelUpConfirm
+    | LevelUpDismiss
 )

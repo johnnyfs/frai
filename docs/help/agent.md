@@ -32,7 +32,7 @@ restored = Observation.from_dict(payload)
 | Field               | Shape                                                                       | Notes |
 | ---                 | ---                                                                         | --- |
 | `mode`              | `{ui_mode: str, play_mode: str | None}`                                    | `play_mode` is `None` outside `UIMode.play`. |
-| `active_actor`      | `ActorSummary | None`                                                       | `{id, name, hp, max_hp, position, faction, glyph}`. |
+| `active_actor`      | `ActorSummary | None`                                                       | `{id, name, hp, max_hp, position, faction, glyph, level, xp, xp_to_next, level_up_pending}`. |
 | `party`             | `list[ActorSummary]`                                                        | Skips members without a `Position`. |
 | `visible_entities`  | `list[VisibleEntity]`                                                       | Anything within 10 tiles of the active actor, party excluded. Sorted by distance then id. |
 | `exits`             | `list[str]`                                                                 | Compass directions with no movement blocker on the adjacent tile. |
@@ -48,7 +48,7 @@ restored = Observation.from_dict(payload)
 
 `ui_mode` is one of: `start`, `character_creation`, `play`, `inventory`,
 `dialogue`, `shop`, `targeting`, `examine`, `help`, `message_pager`,
-`spell_menu`, `rest_menu`, `quit_confirm`, `game_over`.
+`spell_menu`, `rest_menu`, `level_up`, `quit_confirm`, `game_over`.
 
 `play_mode` is one of: `explore`, `turn_based`, `voluntary_turn`.
 

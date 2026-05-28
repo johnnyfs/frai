@@ -17,9 +17,25 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol
 
-from src.core.components import Corpse, GodMode, Inventory, Name, Position, Presentation
+from src.core.components import (
+    Corpse,
+    ExperiencePoints,
+    GodMode,
+    Inventory,
+    LevelUpAvailable,
+    Name,
+    Position,
+    Presentation,
+)
 from src.core.conditions import apply_condition, end_condition
 from src.core.items import has_item
+from src.core.leveling import (
+    hp_gain_for_level_up,
+    level_for_xp,
+    next_threshold,
+    slot_progression_for,
+    xp_for_kill,
+)
 from src.core.quest import QUESTS, Quest, QuestState
 from src.core.effects import (
     ApplyCondition,
@@ -33,7 +49,9 @@ from src.core.effects import (
     EndCondition,
     GrantGold,
     GrantItem,
+    GrantXP,
     KillEntity,
+    LevelUp,
     MoveEntity,
     OpenEntity,
     QuitGame,
@@ -153,6 +171,12 @@ class EffectApplier:
         if isinstance(effect, GrantItem):
             _apply_grant_item(self._host, effect)
             return
+        if isinstance(effect, GrantXP):
+            _apply_grant_xp(self._host, effect, messages)
+            return
+        if isinstance(effect, LevelUp):
+            _apply_level_up(self._host, effect, messages)
+            return
 
         # Conditions (M24)
         if isinstance(effect, ApplyCondition):
@@ -268,9 +292,40 @@ def _apply_kill_entity(host: "App", effect: KillEntity) -> None:
                 gold=0,
                 items=(),
             )
+    # Combat XP grant (M25): split the kill's XP pool across living
+    # party members BEFORE removing the entity so the creature kind is
+    # still readable. Only creatures grant XP — non-creature kills
+    # (corpses re-killed, traps, etc.) are silent.
+    if creature is not None and effect.entity != host.player:
+        from src.core.effects import GrantXP
+
+        xp_pool = xp_for_kill(creature.kind)
+        if xp_pool > 0:
+            living = _living_party_members(host)
+            if living:
+                share = max(1, xp_pool // len(living))
+                xp_effects: list[Effect] = [
+                    GrantXP(member, share) for member in living
+                ]
+                host.effect_applier.apply_all(xp_effects)
+
     world.remove_entity(effect.entity)
     if boss_token is not None:
         _on_boss_killed(host, boss_token)
+
+
+def _living_party_members(host: "App") -> list:
+    """Return the party members that still have positive HP (M25)."""
+
+    living: list = []
+    for member in host.party.members:
+        stats = host.world.combat_stats.get(member)
+        if stats is None:
+            continue
+        if stats.hit_points <= 0:
+            continue
+        living.append(member)
+    return living
 
 
 def _spawn_corpse_entity(
@@ -456,6 +511,126 @@ def _apply_grant_item(host: "App", effect: GrantItem) -> None:
     if inventory is None:
         return
     add_item(inventory, effect.item_id, quantity=effect.quantity)
+
+
+# ---------------------------------------------------------------------------
+# Leveling effects (M25)
+# ---------------------------------------------------------------------------
+
+
+def _apply_grant_xp(host: "App", effect: GrantXP, messages: list[str]) -> None:
+    """Add ``effect.amount`` XP to the entity's ledger and check thresholds (M25).
+
+    Creates an :class:`ExperiencePoints` component on first grant. After
+    adding, if the new total crosses the next level threshold and the
+    actor has no pending :class:`LevelUpAvailable`, attaches the marker
+    and emits an "X is ready to level up!" message so the player knows
+    the modal is waiting. Multi-level jumps surface the next pending
+    level only; the player consumes one level at a time through the
+    level-up modal.
+    """
+
+    if effect.amount <= 0:
+        return
+    world = host.world
+    store = world.experience_points
+    sheet_component = world.characters.get(effect.entity)
+    current_level = sheet_component.sheet.level if sheet_component is not None else 1
+    xp = store.get(effect.entity)
+    if xp is None:
+        xp = ExperiencePoints(value=0, level=current_level)
+        store.add(effect.entity, xp)
+    xp.value += effect.amount
+    # Refresh level mirror in case the sheet was leveled outside the
+    # ledger (defensive — no current code path does so).
+    xp.level = current_level
+    pending = world.level_up_pending.get(effect.entity)
+    if pending is not None:
+        return
+    threshold = next_threshold(current_level)
+    if threshold is None:
+        return
+    if xp.value < threshold:
+        return
+    new_level = level_for_xp(xp.value)
+    if new_level <= current_level:
+        return
+    target = min(current_level + 1, new_level)
+    world.level_up_pending.add(effect.entity, LevelUpAvailable(target_level=target))
+    name = world.name_for(effect.entity)
+    messages.append(f"{name} is ready to level up!")
+
+
+def _apply_level_up(host: "App", effect: LevelUp, messages: list[str]) -> None:
+    """Resolve the pending level-up on ``effect.entity`` (M25).
+
+    Bumps the character sheet's level, recomputes proficiency, adds
+    HP gain to both current and max, and installs the post-level-up
+    spell-slot maxima (for caster classes). The
+    :class:`LevelUpAvailable` marker is cleared. No-op when the actor
+    has no pending level-up.
+    """
+
+    world = host.world
+    pending = world.level_up_pending.get(effect.entity)
+    if pending is None:
+        return
+    sheet_component = world.characters.get(effect.entity)
+    if sheet_component is None:
+        # Defensive: clear the marker so a debug-spawned actor without
+        # a sheet doesn't leave a stuck pending level-up.
+        world.level_up_pending.values.pop(effect.entity, None)
+        return
+    from dataclasses import replace as _replace
+
+    from src.core.character_creation import require_class
+    from src.core.combat import proficiency_bonus_for_level
+    from src.core.spells import SpellSlots
+
+    old_sheet = sheet_component.sheet
+    new_level = pending.target_level
+    new_sheet = _replace(old_sheet, level=new_level)
+    sheet_component.sheet = new_sheet
+
+    class_option = None
+    try:
+        class_option = require_class(old_sheet.character_class)
+    except KeyError:
+        pass
+
+    stats = world.combat_stats.get(effect.entity)
+    if stats is not None and class_option is not None:
+        hp_gain = hp_gain_for_level_up(class_option.hit_die, stats.constitution)
+        stats.max_hit_points += hp_gain
+        stats.hit_points = min(stats.max_hit_points, stats.hit_points + hp_gain)
+        stats.proficiency_bonus = proficiency_bonus_for_level(new_level)
+    else:
+        hp_gain = 0
+
+    # Spell-slot growth. Replace the ledger's maxima for the levels the
+    # progression table specifies and refill the remaining counts so a
+    # newly granted slot is usable immediately (the player should not
+    # need to long-rest right after ding).
+    progression = slot_progression_for(old_sheet.character_class, new_level)
+    if progression:
+        slots = world.spell_slots.get(effect.entity)
+        if slots is None:
+            slots = SpellSlots.from_pairs(progression)
+            world.spell_slots.add(effect.entity, slots)
+        else:
+            for level, maximum in progression.items():
+                slots.max_by_level[level] = maximum
+                slots.slots_by_level[level] = maximum
+
+    # Sync the XP component's level mirror so subsequent grants probe
+    # the new threshold.
+    xp = world.experience_points.get(effect.entity)
+    if xp is not None:
+        xp.level = new_level
+
+    world.level_up_pending.values.pop(effect.entity, None)
+    name = world.name_for(effect.entity)
+    messages.append(f"{name} reaches level {new_level}!")
 
 
 # ---------------------------------------------------------------------------
@@ -678,12 +853,13 @@ def _emit_completion(
 def _apply_quest_reward(
     host: "App", quest: Quest, message_sink: list[str] | None
 ) -> None:
-    """Apply the quest's reward effects (M14).
+    """Apply the quest's reward effects (M14, XP wired M25).
 
     Gold is added to each living party member's inventory; XP is
-    announced but not yet mutated (no XP component yet — M25 will
-    wire it). Members without an inventory are skipped silently
-    rather than spawning one mid-completion.
+    granted via :class:`GrantXP` so the ledger updates, the
+    threshold check fires, and any "ready to level up!" message
+    flows through the standard pipeline. Members without an inventory
+    are skipped silently rather than spawning one mid-completion.
     """
     reward = quest.reward
     granted: list[str] = []
@@ -695,6 +871,11 @@ def _apply_quest_reward(
             inventory.gold += reward.gold_per_member
         granted.append(f"{reward.gold_per_member} gold each")
     if reward.xp_per_member > 0:
+        xp_effects: list[Effect] = [
+            GrantXP(member, reward.xp_per_member)
+            for member in host.party.members
+        ]
+        host.effect_applier.apply_all(xp_effects)
         granted.append(f"{reward.xp_per_member} XP each")
     if granted:
         text = f"Quest reward: {', '.join(granted)}."

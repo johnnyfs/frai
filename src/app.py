@@ -17,6 +17,7 @@ from src.core.components import (
     BlocksMovement,
     Character,
     Equipment,
+    ExperiencePoints,
     Faction,
     Inventory,
     Name,
@@ -43,6 +44,7 @@ from src.core.effects import (
     Effect,
     EmitMessage,
     EndCondition,
+    LevelUp,
     MoveEntity,
 )
 from src.core.effects_applier import EffectApplier
@@ -57,6 +59,8 @@ from src.core.actions import (
     EndTurn,
     ExamineRequest,
     InteractAttempt,
+    LevelUpConfirm,
+    LevelUpDismiss,
     MoveAttempt,
     PickupAttempt,
     RestMenuChoice,
@@ -416,6 +420,11 @@ class App:
         zone_effects = tick_zone_transitions(self)
         if zone_effects:
             self.effect_applier.apply_all(zone_effects)
+        # M25: an effect batch may have granted XP and crossed a
+        # threshold; pop the level-up modal so the player consumes
+        # the pending level-up immediately. Skips when a different
+        # modal is already on screen.
+        self.maybe_open_level_up_modal()
 
     def run_debug_command(self, command: str) -> None:
         """Execute a single debug command line (M33).
@@ -524,6 +533,12 @@ class App:
             return
         if isinstance(action, RestMenuChoice) and self.ui_mode is UIMode.rest_menu:
             self._handle_rest_menu_choice(action)
+            return
+        if isinstance(action, LevelUpConfirm) and self.ui_mode is UIMode.level_up:
+            self._handle_level_up_confirm()
+            return
+        if isinstance(action, LevelUpDismiss) and self.ui_mode is UIMode.level_up:
+            self._close_level_up_modal()
             return
         if isinstance(action, InteractAttempt) and self.ui_mode is UIMode.play:
             if action.dx == 0 and action.dy == 0:
@@ -979,6 +994,67 @@ class App:
             return
         self.apply_effects(effects)
         self.sync_play_mode()
+
+    # ------------------------------------------------------------------
+    # Level-up modal (M25)
+    # ------------------------------------------------------------------
+
+    def _first_party_member_with_pending_level_up(self) -> EntityId | None:
+        """Return the first party member carrying a ``LevelUpAvailable``.
+
+        Surface order is recruitment order so the player sees their
+        own character first when ding'ing alongside companions. ``None``
+        means nobody is pending — the App skips opening the modal.
+        """
+
+        for member in self.party.members:
+            if self.world.level_up_pending.has(member):
+                return member
+        return None
+
+    def maybe_open_level_up_modal(self) -> bool:
+        """Open the level-up modal if any party member has a pending level-up.
+
+        Returns ``True`` when the modal was opened. The App calls this
+        after applying an effect batch that may have granted XP (kill,
+        quest reward) so the modal pops automatically. Combat / dialogue
+        modals win — we won't open while the player is in a different
+        modal. The forced turn-based mode is fine: the modal is paused
+        play, not a new actor's turn.
+        """
+
+        if self.ui_mode is not UIMode.play:
+            return False
+        if self._first_party_member_with_pending_level_up() is None:
+            return False
+        self.ui_mode = UIMode.level_up
+        return True
+
+    def _close_level_up_modal(self) -> None:
+        self.ui_mode = UIMode.play
+        self.messages.emit("Level-up deferred.")
+
+    def _handle_level_up_confirm(self) -> None:
+        """Resolve the pending level-up on the first pending party member.
+
+        Routes through the standard effect pipeline so the level-up
+        message and any spell-slot / HP gains land in the same flow
+        as other gameplay effects. The modal closes after the effect
+        applies; if another party member still has a pending level-up,
+        the modal reopens so the player can confirm them one at a time.
+        """
+
+        member = self._first_party_member_with_pending_level_up()
+        if member is None:
+            self.ui_mode = UIMode.play
+            return
+        # Close the modal before applying so the resulting messages
+        # land in the play screen, matching the spell/rest modal pattern.
+        self.ui_mode = UIMode.play
+        self.apply_effects([LevelUp(member)])
+        # Another member may also be pending; reopen the modal so the
+        # player works through them sequentially.
+        self.maybe_open_level_up_modal()
 
     def sync_play_mode(self) -> None:
         """Recompute PlayMode from world state.
@@ -1731,6 +1807,12 @@ def _assign_character_sheet(world: World, entity: EntityId, sheet: CharacterShee
     world.equipment.add(
         entity,
         Equipment(weapon_item_id=weapon_item_id, armor_item_id=armor_item_id),
+    )
+    # M25 XP ledger. Every PC starts at level 1 with 0 XP; the
+    # leveling system grants XP on kills (combat) and quest rewards
+    # and attaches LevelUpAvailable when a threshold is crossed.
+    world.experience_points.add(
+        entity, ExperiencePoints(value=0, level=sheet.level)
     )
     _assign_spell_loadout(world, entity, sheet)
 
