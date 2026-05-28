@@ -19,21 +19,11 @@ from src.core.components import (
 from src.core.character_creation import CharacterSheet
 from src.core.items import add_item, armor_item_id_for_name, weapon_item_id_for_name
 from src.core.effects import (
-    DamageEntity,
     Effect,
     EmitMessage,
-    KillEntity,
     MoveEntity,
-    OpenEntity,
-    RemoveBlocker,
-    QuitGame,
-    RestartGame,
-    SetCharacterSheet,
-    SetMode,
-    DisarmTrap,
-    TriggerTrap,
-    UnlockEntity,
 )
+from src.core.effects_applier import EffectApplier
 from src.core.entity import EntityId
 from src.core.actions import EndTurn, InteractAttempt, MoveAttempt, ToggleTurnMode
 from src.core.modes import GameMode, GameOverMode, NormalMode, StartChoiceMode
@@ -80,6 +70,10 @@ class App:
     facing: tuple[int, int] = (1, 0)
     voluntary_turn_based: bool = False
     running: bool = True
+    effect_applier: EffectApplier = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.effect_applier = EffectApplier(self)
 
     @property
     def focus(self) -> EntityId:
@@ -91,60 +85,7 @@ class App:
         return self.party[self.active_party_index]
 
     def apply_effects(self, effects: list[Effect]) -> None:
-        messages: list[str] = []
-        for effect in effects:
-            if isinstance(effect, MoveEntity):
-                position = self.world.positions.require(effect.entity)
-                position.x = effect.x
-                position.y = effect.y
-            elif isinstance(effect, EmitMessage):
-                messages.append(effect.text)
-            elif isinstance(effect, SetMode):
-                self.mode = effect.mode
-            elif isinstance(effect, QuitGame):
-                self.running = False
-            elif isinstance(effect, SetCharacterSheet):
-                _assign_character_sheet(self.world, effect.entity, effect.sheet)
-                if effect.entity == self.player:
-                    self.party = _replace_companions_for_player_sheet(
-                        self.world,
-                        self.player,
-                        self.party,
-                        effect.sheet,
-                    )
-                    self.active_party_index = 0
-            elif isinstance(effect, DamageEntity):
-                stats = self.world.combat_stats.get(effect.entity)
-                if stats is not None:
-                    stats.hit_points = max(0, stats.hit_points - effect.amount)
-            elif isinstance(effect, KillEntity):
-                if effect.entity == self.player:
-                    self.mode = GameOverMode()
-                else:
-                    self.world.remove_entity(effect.entity)
-            elif isinstance(effect, RestartGame):
-                self.restart()
-            elif isinstance(effect, OpenEntity):
-                if self.world.doors.has(effect.entity):
-                    self.world.doors.require(effect.entity).is_open = True
-                if self.world.containers.has(effect.entity):
-                    self.world.containers.require(effect.entity).is_open = True
-            elif isinstance(effect, UnlockEntity):
-                lock = self.world.locks.get(effect.entity)
-                if lock is not None:
-                    lock.is_locked = False
-            elif isinstance(effect, DisarmTrap):
-                trap = self.world.traps.get(effect.entity)
-                if trap is not None:
-                    trap.is_armed = False
-            elif isinstance(effect, TriggerTrap):
-                trap = self.world.traps.get(effect.entity)
-                if trap is not None and not trap.reusable:
-                    trap.is_armed = False
-            elif isinstance(effect, RemoveBlocker):
-                self.world.blockers.values.pop(effect.entity, None)
-        if messages:
-            self.messages.emit(" ".join(message for message in messages if message))
+        self.effect_applier.apply_all(effects)
 
     def handle_key(self, key: int) -> None:
         if self.messages.awaiting_more and not isinstance(self.mode, GameOverMode):
