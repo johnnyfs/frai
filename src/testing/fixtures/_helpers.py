@@ -1,0 +1,482 @@
+"""Shared builders for the M38 playtest scenario fixtures.
+
+A fixture builds a tiny purpose-made world (typically a single
+walled-in room) and a party that already exists on it. The default
+``create_app`` overworld is replaced wholesale — the fixture's
+``builder`` returns a fresh :class:`~src.app.App` and the harness
+swaps to it.
+
+The helpers in this module are deliberately small and explicit. They
+exist to keep the per-scenario builders short and focused on the
+specific feature under exercise; no attempt is made to recreate the
+full ``create_app`` machinery (start screen, character creation, etc.).
+
+What you get
+------------
+
+- :func:`build_fixture_room` — make a walled room of a given size and
+  return the world, the floor coordinates of the interior, and the
+  centre point used to anchor the party.
+- :func:`spawn_party` — drop the player + companion party into the
+  room and return their entity ids. Sheets are picked deterministically
+  from the seed so save/load and observation snapshots round-trip.
+- :func:`spawn_kobold`, :func:`spawn_kobold_archer`, :func:`spawn_chest`,
+  :func:`spawn_door`, :func:`spawn_trap`, :func:`spawn_shopkeeper` —
+  one-line helpers that add the right components for each scenario
+  category. They mirror the M33 debug spawn catalog (and are kept
+  intentionally close to those signatures) but live here so the
+  fixture builders never need to monkey with the dev-mode flag.
+- :func:`make_fixture_app` — orchestrate the boilerplate: build the
+  room, populate the party, run the caller's content callback, and
+  produce a fully wired ``App`` ready for ``PlaytestHarness`` use.
+"""
+
+from __future__ import annotations
+
+import random
+from dataclasses import dataclass
+from typing import Callable
+
+from src.app import (
+    App,
+    _add_companions_for_player_sheet,
+    _assign_character_sheet,
+    _make_turn_controller,
+)
+from src.core.action_context import make_default_resolver
+from src.core.character_creation import (
+    CharacterSheet,
+    CLASSES,
+    RACES,
+    initial_character_creation_state,
+    next_step,
+    to_character_sheet,
+    with_selection,
+)
+from src.core.combat import weapon_for_name
+from src.core.components import (
+    AI,
+    AIBehaviorType,
+    BlocksMovement,
+    CombatStats,
+    Container,
+    Creature,
+    Door,
+    Faction,
+    Inventory,
+    Lock,
+    Name,
+    PlayerControlled,
+    Position,
+    Presentation,
+    Shop,
+    Trap,
+)
+from src.core.dispatcher import Dispatcher
+from src.core.entity import EntityId
+from src.core.game_state import GameState
+from src.core.items import add_item
+from src.core.modes import UIMode, play_mode_for_state
+from src.core.party_state import PartyState
+from src.core.world import World
+from src.map.tiles import FLOOR, HORIZONTAL_WALL, VERTICAL_WALL
+from src.systems.ai_system import EnemyAISystem  # noqa: F401 — re-exported for builders
+from src.systems.awareness_system import hostiles_requiring_battle
+from src.systems.character_creation_system import CharacterCreationSystem
+from src.systems.combat_system import CombatSystem
+from src.systems.game_over_system import GameOverSystem
+from src.systems.interaction_system import InteractionSystem
+from src.systems.inventory_system import InventorySystem
+from src.systems.loot_system import LootSystem
+from src.systems.movement_system import (
+    MovementContextResolver,
+    MovementSystem,
+)
+from src.systems.obstruction_system import ObstructionSystem
+from src.systems.quit_system import QuitSystem
+from src.systems.start_system import StartSystem
+
+
+# Default fixture-room dimensions. Big enough for a small encounter +
+# the four-member party + a couple of spare tiles around the edges,
+# small enough that LOS / autowalk tests don't get lost in empty space.
+DEFAULT_ROOM_WIDTH = 21
+DEFAULT_ROOM_HEIGHT = 11
+
+
+@dataclass(frozen=True, slots=True)
+class FixtureRoom:
+    """Geometry of a freshly-built fixture room.
+
+    The room is a walled rectangle; ``floor_bounds`` is the inclusive
+    ``(left, top, right, bottom)`` of the walkable interior. ``centre``
+    is the tile we drop the player on; everything else (companions,
+    enemies, doors) is positioned relative to it.
+    """
+
+    world: World
+    floor_bounds: tuple[int, int, int, int]
+    centre: tuple[int, int]
+
+
+def build_fixture_room(
+    width: int = DEFAULT_ROOM_WIDTH,
+    height: int = DEFAULT_ROOM_HEIGHT,
+) -> FixtureRoom:
+    """Build a walled-in floor room and return its geometry.
+
+    The world is sized exactly to the room (no overworld outside).
+    Walls live at the borders; the interior tiles are catalog
+    :data:`FLOOR`. Coordinates returned in ``floor_bounds`` are the
+    *interior* edge — ``(1, 1)`` to ``(width - 2, height - 2)`` for a
+    standard room.
+    """
+    if width < 5 or height < 5:
+        raise ValueError("Fixture rooms need room for walls and a centre tile.")
+    tiles = [[FLOOR for _ in range(width)] for _ in range(height)]
+    for x in range(width):
+        tiles[0][x] = HORIZONTAL_WALL
+        tiles[height - 1][x] = HORIZONTAL_WALL
+    for y in range(height):
+        tiles[y][0] = VERTICAL_WALL
+        tiles[y][width - 1] = VERTICAL_WALL
+    world = World(width=width, height=height, tiles=tiles)
+    floor_bounds = (1, 1, width - 2, height - 2)
+    centre = (width // 2, height // 2)
+    return FixtureRoom(world=world, floor_bounds=floor_bounds, centre=centre)
+
+
+def deterministic_player_sheet(rng: random.Random) -> CharacterSheet:
+    """Roll a class/race/skills bundle, deterministic for ``rng``.
+
+    Equivalent to :func:`src.systems.start_system.yolo_sheet` but local
+    so fixtures don't depend on the start-system import path. Picks
+    Rogue when the random class would otherwise lack the Sleight-of-
+    Hand skill required for the lock/trap scenarios — we override that
+    for fixtures that need it via :func:`force_rogue_sheet` below.
+    """
+    state = initial_character_creation_state(rng=rng)
+    state = with_selection(state, rng.choice(RACES).name)
+    character_class = rng.choice(CLASSES)
+    state = with_selection(state, character_class.name)
+    state = with_selection(state, rng.choice(character_class.specializations))
+    for choices, count in (
+        (character_class.cantrip_choices, character_class.cantrip_count),
+        (character_class.spell_choices, character_class.spell_count),
+        (character_class.skill_choices, character_class.skill_count),
+    ):
+        for choice in rng.sample(list(choices), count):
+            state = with_selection(state, choice)
+        if count:
+            state = next_step(state)
+    while state.step != "confirm":
+        state = next_step(state)
+    return to_character_sheet(state)
+
+
+def force_rogue_sheet(rng: random.Random) -> CharacterSheet:
+    """Roll a Rogue sheet that includes Sleight of Hand for lock/trap tests.
+
+    Picks the Rogue class explicitly so :data:`_LOCK_SKILL` /
+    :data:`_TRAP_SKILL` checks have a proficient actor at the wheel.
+    Race is deterministic over the same seed so save/load still
+    round-trips.
+    """
+    rogue = next(option for option in CLASSES if option.name == "Rogue")
+    state = initial_character_creation_state(rng=rng)
+    state = with_selection(state, rng.choice(RACES).name)
+    state = with_selection(state, rogue.name)
+    state = with_selection(state, rng.choice(rogue.specializations))
+    # Rogue has no cantrips/spells, so we go straight to skills.
+    state = next_step(state)  # advance past spec
+    # Pick a deterministic skill bundle: Sleight of Hand first, then
+    # fill the rest from the remaining options.
+    must_have = "Sleight of Hand"
+    remaining = [skill for skill in rogue.skill_choices if skill != must_have]
+    chosen = [must_have, *rng.sample(remaining, rogue.skill_count - 1)]
+    for choice in chosen:
+        state = with_selection(state, choice)
+    state = next_step(state)
+    while state.step != "confirm":
+        state = next_step(state)
+    return to_character_sheet(state)
+
+
+def spawn_party(
+    world: World,
+    position: tuple[int, int],
+    *,
+    rng: random.Random,
+    sheet: CharacterSheet | None = None,
+) -> tuple[EntityId, list[EntityId]]:
+    """Spawn the player at ``position`` plus the standard companion
+    party, returning ``(player_id, party_list)``.
+
+    ``sheet`` defaults to :func:`deterministic_player_sheet` so callers
+    that don't care about class composition get a reproducible-enough
+    roll for free. Pass :func:`force_rogue_sheet` (or any other sheet)
+    when a fixture needs a specific skill set.
+    """
+    if sheet is None:
+        sheet = deterministic_player_sheet(rng)
+    player = world.create_entity()
+    world.positions.add(player, Position(x=position[0], y=position[1]))
+    world.presentations.add(player, Presentation("@"))
+    world.blockers.add(player, BlocksMovement("occupied"))
+    world.player_controlled.add(player, PlayerControlled())
+    world.names.add(player, Name("you"))
+    world.factions.add(player, Faction("player"))
+    _assign_character_sheet(world, player, sheet)
+    party = _add_companions_for_player_sheet(world, player, sheet)
+    return player, party
+
+
+def spawn_kobold(
+    world: World,
+    x: int,
+    y: int,
+    *,
+    ai: AI | None = None,
+) -> EntityId:
+    """Add a melee kobold at ``(x, y)``. Mirrors the M33 debug catalog.
+
+    Carries the canonical M28 ``dungeon`` faction so the M28 relation
+    table treats it as hostile to the player party without falling
+    through the legacy ``"enemy" → DUNGEON`` alias.
+    """
+    entity = world.create_entity()
+    world.positions.add(entity, Position(x=x, y=y))
+    world.presentations.add(entity, Presentation("k"))
+    world.names.add(entity, Name("kobold"))
+    world.factions.add(entity, Faction("dungeon"))
+    world.blockers.add(entity, BlocksMovement("occupied"))
+    world.combat_stats.add(
+        entity,
+        CombatStats(
+            armor_class=12,
+            hit_points=5,
+            max_hit_points=5,
+            strength=8,
+            dexterity=14,
+            constitution=10,
+        ),
+    )
+    world.weapons.add(entity, weapon_for_name("dagger"))
+    world.creatures.add(entity, Creature(kind="kobold", attack_verb="stabs"))
+    world.ai.add(entity, ai or AI(behavior=AIBehaviorType.CHASE))
+    return entity
+
+
+def spawn_kobold_archer(world: World, x: int, y: int) -> EntityId:
+    """Ranged kobold archer with the RANGED AI behavior.
+
+    ``preferred_range`` is set to 3 so the AI tries to keep distance,
+    and ``attack_range`` to 6 so an arrow flies from the spawn tile.
+    The weapon damage die stays modest so the encounter is winnable in
+    a few rounds.
+    """
+    entity = spawn_kobold(
+        world,
+        x,
+        y,
+        ai=AI(behavior=AIBehaviorType.RANGED, attack_range=6, preferred_range=4),
+    )
+    world.names.add(entity, Name("kobold archer"))
+    # Replace the dagger with a shortbow-equivalent for flavour. We
+    # keep the existing weapon catalog mechanic (longsword die size)
+    # rather than adding a new item type just for the archer; ranged
+    # attacks are mechanically identical at this milestone.
+    world.weapons.add(entity, weapon_for_name("shortsword"))
+    world.creatures.add(entity, Creature(kind="kobold_archer", attack_verb="shoots"))
+    return entity
+
+
+def spawn_door(
+    world: World,
+    x: int,
+    y: int,
+    *,
+    locked: bool = False,
+    pick_dc: int = 10,
+) -> EntityId:
+    """Add a door (optionally locked) at ``(x, y)``.
+
+    Doors block movement until opened; locked doors additionally
+    require a Sleight-of-Hand check (the M9 default) to bypass.
+    """
+    entity = world.create_entity()
+    world.positions.add(entity, Position(x=x, y=y))
+    world.presentations.add(entity, Presentation("+"))
+    world.names.add(entity, Name("locked door" if locked else "door"))
+    world.doors.add(entity, Door(is_open=False))
+    world.blockers.add(entity, BlocksMovement("door"))
+    if locked:
+        world.locks.add(entity, Lock(is_locked=True, pick_dc=pick_dc))
+    return entity
+
+
+def spawn_trap(
+    world: World,
+    x: int,
+    y: int,
+    *,
+    disarm_dc: int = 10,
+    damage: int = 2,
+) -> EntityId:
+    """Add an armed trap at ``(x, y)``.
+
+    The trap is *not* a movement blocker — the player walks onto the
+    tile (or pre-empts it by interacting toward it for the disarm
+    check). Damage is small so a fixture run doesn't accidentally KO
+    the actor mid-test.
+    """
+    entity = world.create_entity()
+    world.positions.add(entity, Position(x=x, y=y))
+    world.presentations.add(entity, Presentation("^"))
+    world.names.add(entity, Name("trap"))
+    world.traps.add(entity, Trap(is_armed=True, disarm_dc=disarm_dc, damage=damage))
+    return entity
+
+
+def spawn_chest(
+    world: World,
+    x: int,
+    y: int,
+    *,
+    items: tuple[str, ...] = (),
+    gold: int = 0,
+) -> EntityId:
+    """Add a closed container at ``(x, y)`` with seeded contents.
+
+    The chest blocks movement (you have to open it from an adjacent
+    tile via ``e``). Contents land in its :class:`Inventory`; opening
+    via :data:`OpenEntity` flips the ``is_open`` flag, and pickup uses
+    the standard M30 inventory transfer.
+    """
+    entity = world.create_entity()
+    world.positions.add(entity, Position(x=x, y=y))
+    world.presentations.add(entity, Presentation("="))
+    world.names.add(entity, Name("chest"))
+    world.containers.add(entity, Container(is_open=False))
+    world.blockers.add(entity, BlocksMovement("container"))
+    inventory = Inventory(gold=gold)
+    for item_id in items:
+        add_item(inventory, item_id)
+    world.inventories.add(entity, inventory)
+    return entity
+
+
+def spawn_shopkeeper(
+    world: World,
+    x: int,
+    y: int,
+    *,
+    name: str = "Quartermaster",
+    gold: int = 200,
+    stock: tuple[str, ...] = (),
+) -> EntityId:
+    """Add a stationary shopkeeper with a stocked inventory.
+
+    The shopkeeper carries the canonical M28 ``town`` faction so the
+    relation table treats them as neutral to the player party
+    (no forced turn-based mode, no autowalk interrupt). The shop
+    machinery in :mod:`src.core.shop` reads from the :class:`Inventory`
+    on the same entity.
+    """
+    entity = world.create_entity()
+    world.positions.add(entity, Position(x=x, y=y))
+    world.presentations.add(entity, Presentation("S"))
+    world.names.add(entity, Name(name))
+    world.factions.add(entity, Faction("town"))
+    world.blockers.add(entity, BlocksMovement("occupied"))
+    world.shops.add(entity, Shop(name=name))
+    inventory = Inventory(gold=gold)
+    for item_id in stock:
+        add_item(inventory, item_id)
+    world.inventories.add(entity, inventory)
+    return entity
+
+
+def make_fixture_app(
+    *,
+    width: int = DEFAULT_ROOM_WIDTH,
+    height: int = DEFAULT_ROOM_HEIGHT,
+    rng: random.Random,
+    populate: Callable[[FixtureRoom, EntityId, list[EntityId]], None],
+    sheet: CharacterSheet | None = None,
+    party_position: tuple[int, int] | None = None,
+    ui_mode: UIMode = UIMode.play,
+) -> App:
+    """Build a fully-wired :class:`App` around a fresh fixture room.
+
+    ``populate(room, player, party)`` is called after the party is
+    placed so the caller only writes the per-scenario content
+    (enemies, doors, chests, etc.). The function returns an App in
+    ``ui_mode`` (defaults to :data:`UIMode.play` because nearly every
+    fixture wants to start in the play screen).
+
+    The dispatcher, movement/interaction RNG, and turn controller are
+    rebuilt from scratch — replacing the default ``create_app`` world
+    wholesale rather than monkey-patching it keeps the fixture's seed
+    contract clean (the same seed produces the same world).
+    """
+    room = build_fixture_room(width=width, height=height)
+    if party_position is None:
+        party_position = room.centre
+    player, party = spawn_party(room.world, party_position, rng=rng, sheet=sheet)
+
+    populate(room, player, party)
+
+    movement = MovementSystem(
+        obstruction=ObstructionSystem(),
+        context_resolver=MovementContextResolver(),
+    )
+    combat = CombatSystem(rng=rng)
+    dispatcher = Dispatcher(
+        systems=[
+            StartSystem(),
+            GameOverSystem(),
+            InventorySystem(),
+            CharacterCreationSystem(),
+            QuitSystem(),
+            InteractionSystem(rng=rng),
+            LootSystem(),
+            movement,
+            combat,
+        ]
+    )
+    party_state = PartyState.from_members(party)
+    game_state = GameState(
+        world=room.world,
+        party=party_state,
+        turn=_make_turn_controller(party_state),
+        ui_mode=ui_mode,
+    )
+    game_state.turn.hostiles_probe = lambda: bool(
+        hostiles_requiring_battle(game_state.world, party_state.members)
+    )
+    game_state.turn.can_take_turn = lambda entity: _can_take_turn(
+        game_state.world, entity
+    )
+    game_state.turn.play_mode = play_mode_for_state(
+        bool(hostiles_requiring_battle(game_state.world, party_state.members))
+    )
+    app = App(
+        game_state=game_state,
+        player=player,
+        dispatcher=dispatcher,
+        loot_rng=rng,
+        action_resolver=None,
+    )
+    # ``__post_init__`` builds the resolver and refreshes vision.
+    return app
+
+
+def _can_take_turn(world: World, entity: EntityId) -> bool:
+    """Local copy of the standard turn-eligibility predicate.
+
+    Mirrors :func:`src.app._can_take_turn`. Inlined so the fixture
+    helpers don't import a private name from the App module.
+    """
+    stats = world.combat_stats.get(entity)
+    return world.positions.has(entity) and (stats is None or stats.hit_points > 0)
