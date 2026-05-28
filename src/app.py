@@ -27,6 +27,12 @@ from src.core.effects import (
 from src.core.effects_applier import EffectApplier
 from src.core.entity import EntityId
 from src.core.actions import EndTurn, InteractAttempt, MoveAttempt, ToggleTurnMode
+from src.core.autowalk import (
+    AutowalkRequest,
+    InterruptReason,
+    interrupt_message,
+    step_autowalk,
+)
 from src.core.modes import PlayMode, UIMode, is_turn_based_play, play_mode_for_state
 from src.core.party import CompanionDefinition, companion_definitions_for_player_class
 from src.core.party_state import PartyState
@@ -78,6 +84,11 @@ class App:
     dispatcher: Dispatcher
     running: bool = True
     vision: VisionSystem = field(default_factory=VisionSystem)
+    # Auto-walk runtime state (M22). When ``autowalk`` is non-None the
+    # main key handler runs repeated single-step moves until the
+    # ``step_autowalk`` predicate fires. This is transient state and is
+    # never persisted — save/load drops any in-progress walk.
+    autowalk: AutowalkRequest | None = None
     effect_applier: EffectApplier = field(init=False)
 
     def __post_init__(self) -> None:
@@ -247,6 +258,16 @@ class App:
             self.messages.advance()
             return
         self.sync_play_mode()
+        # Autowalk (M22): a capital direction key initiates a repeated
+        # move in that direction. The detection happens before
+        # ``map_key`` lowercases the input. Only valid while we're in
+        # the play screen — modal screens ignore the prefix.
+        if self.ui_mode is UIMode.play and self.autowalk is None:
+            direction = _AUTOWALK_KEYS.get(key)
+            if direction is not None:
+                self.autowalk = AutowalkRequest(direction=direction)
+                self._run_autowalk()
+                return
         action = map_key(
             key,
             self.ui_mode,
@@ -358,6 +379,82 @@ class App:
         ):
             self.turn.consume_movement(cost)
         return effects
+
+    def _run_autowalk(self) -> None:
+        """Drive an in-progress autowalk to completion or interrupt.
+
+        Each iteration synthesises one ``MoveAttempt`` in the walk's
+        direction, dispatches it through the same path a manual move
+        uses, and then asks ``step_autowalk`` whether to continue. The
+        autowalk-active state field is cleared before we return so a
+        subsequent key press starts fresh, and an interrupt message is
+        emitted so the player knows why the walk stopped.
+
+        Implementation note: we read the active actor's position before
+        and after each dispatch to decide whether the actor moved. The
+        movement system already emits ``"Blocked."`` when a step is
+        refused, but reading positions directly avoids coupling to the
+        message text in the happy path.
+        """
+
+        request = self.autowalk
+        if request is None:
+            return
+        steps = 0
+        max_steps = max(0, request.max_steps)
+        last_reason: InterruptReason | None = None
+        while steps < max_steps:
+            actor = self.active_actor()
+            position = self.world.positions.get(actor)
+            if position is None:
+                last_reason = InterruptReason.BLOCKED
+                break
+            before = (position.x, position.y)
+            self.facing = request.direction
+            action = MoveAttempt(actor=actor, dx=request.direction[0], dy=request.direction[1])
+            if is_turn_based_play(self.turn.play_mode):
+                self.apply_effects(self._handle_active_move(action))
+            else:
+                self.apply_effects(self._handle_explore_move(action))
+                self._tick_world_clock(SECONDS_PER_TURN)
+            self.sync_play_mode()
+            steps += 1
+            after_position = self.world.positions.get(actor)
+            after = (after_position.x, after_position.y) if after_position is not None else before
+            actor_moved = after != before
+            cont, reason = step_autowalk(
+                self,
+                request,
+                steps,
+                actor=actor,
+                actor_moved=actor_moved,
+            )
+            if not cont:
+                last_reason = reason
+                break
+        else:
+            # Loop exited because ``steps == max_steps`` without an
+            # earlier interrupt. ``step_autowalk`` returns this reason on
+            # the final iteration above so we should not normally land
+            # here, but defensively report the budget exhaustion.
+            last_reason = InterruptReason.OUT_OF_STEPS
+        self.autowalk = None
+        if last_reason is not None:
+            # Preserve any event-message text the predicate stopped on.
+            # We only append our own banner when the buffer is empty or
+            # carrying a non-informative token; otherwise the player
+            # already has the relevant message in front of them.
+            current = self.messages.current
+            if not current or current in {"Blocked.", "No movement remaining."}:
+                self.messages.emit(interrupt_message(last_reason))
+            elif last_reason in (
+                InterruptReason.OUT_OF_STEPS,
+                InterruptReason.NEW_HOSTILE_VISIBLE,
+                InterruptReason.COMBAT_STARTED,
+            ):
+                # Always surface these reasons — they aren't otherwise
+                # signaled by the message log.
+                self.messages.emit(interrupt_message(last_reason))
 
     def advance_party_turn(self) -> None:
         self.turn.end_turn_with_enemy_phase(
@@ -611,6 +708,23 @@ def _party_displacement(
 def _displacement_name(world: World, entity: EntityId) -> str:
     name = world.name_for(entity)
     return "Player" if name == "you" else name
+
+
+# Auto-walk key bindings (M22). The keys are the standard Rogue-style
+# direction letters in upper case, so ``H/J/K/L`` walk cardinally and
+# ``Y/U/B/N`` walk diagonally until interrupted. Detection uses the
+# raw curses key (ord) before ``map_key`` lowercases it, so the regular
+# lowercase letters keep their single-step semantics.
+_AUTOWALK_KEYS: dict[int, tuple[int, int]] = {
+    ord("H"): (-1, 0),
+    ord("J"): (0, 1),
+    ord("K"): (0, -1),
+    ord("L"): (1, 0),
+    ord("Y"): (-1, -1),
+    ord("U"): (1, -1),
+    ord("B"): (-1, 1),
+    ord("N"): (1, 1),
+}
 
 
 def _can_take_turn(world: World, entity: EntityId) -> bool:
