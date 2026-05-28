@@ -37,6 +37,7 @@ from src.testing.fixtures._helpers import (
     DEFAULT_ROOM_WIDTH,
     DEFAULT_ROOM_HEIGHT,
     FixtureRoom,
+    clear_tiles_for_spawn,
     force_rogue_sheet,
     make_fixture_app,
     spawn_chest,
@@ -80,14 +81,28 @@ def _fixture_rng(seed: int = 0) -> random.Random:
 
 
 def _build_combat_simple(_app: App, rng: random.Random | None = None) -> App:
-    def populate(room: FixtureRoom, player: EntityId, _party: list[EntityId]) -> None:
+    def populate(room: FixtureRoom, player: EntityId, party: list[EntityId]) -> None:
         # Two kobolds, both adjacent to the player. Adjacency forces
         # the play mode to ``turn_based`` from t=0 (no exploration
         # window). Each is on a cardinal so vision can confirm them
         # without LOS edge cases.
-        px, py = room.world.positions.require(player).x, room.world.positions.require(player).y
-        spawn_kobold(room.world, px + 1, py)
-        spawn_kobold(room.world, px, py + 1)
+        #
+        # The deterministic companion-placement helper (random.Random(0))
+        # lands one companion on ``(px+1, py)``; we evict that
+        # companion before placing the kobolds so the scenario entity
+        # owns the tile instead of being silently displaced (issue #77).
+        px = room.world.positions.require(player).x
+        py = room.world.positions.require(player).y
+        kobold_tiles = ((px + 1, py), (px, py + 1))
+        clear_tiles_for_spawn(
+            room.world,
+            tiles=kobold_tiles,
+            movable=tuple(party[1:]),
+            bounds=room.floor_bounds,
+            avoid=((px, py),),
+        )
+        spawn_kobold(room.world, *kobold_tiles[0])
+        spawn_kobold(room.world, *kobold_tiles[1])
 
     return make_fixture_app(rng=rng if rng is not None else _fixture_rng(), populate=populate)
 
@@ -106,13 +121,24 @@ def _build_combat_archer(_app: App, rng: random.Random | None = None) -> App:
 
 
 def _build_door_locked(_app: App, rng: random.Random | None = None) -> App:
-    def populate(room: FixtureRoom, player: EntityId, _party: list[EntityId]) -> None:
+    def populate(room: FixtureRoom, player: EntityId, party: list[EntityId]) -> None:
         # Locked door one tile east of the player. The party rolls
         # Rogue (Sleight-of-Hand) so the M9 lockpick path is exercised
         # rather than the refusal banner — a tester wanting the refusal
         # path can override the player's skill set via the harness.
-        px, py = room.world.positions.require(player).x, room.world.positions.require(player).y
-        spawn_door(room.world, px + 1, py, locked=True, pick_dc=10)
+        # Companion-placement may have parked someone at ``(px+1, py)``
+        # so we evict them before placing the door (issue #77).
+        px = room.world.positions.require(player).x
+        py = room.world.positions.require(player).y
+        door_tile = (px + 1, py)
+        clear_tiles_for_spawn(
+            room.world,
+            tiles=(door_tile,),
+            movable=tuple(party[1:]),
+            bounds=room.floor_bounds,
+            avoid=((px, py),),
+        )
+        spawn_door(room.world, door_tile[0], door_tile[1], locked=True, pick_dc=10)
 
     rng = rng if rng is not None else _fixture_rng()
     return make_fixture_app(
@@ -156,16 +182,27 @@ def _build_container_loot(_app: App, rng: random.Random | None = None) -> App:
 
 
 def _build_shop_basic(_app: App, rng: random.Random | None = None) -> App:
-    def populate(room: FixtureRoom, player: EntityId, _party: list[EntityId]) -> None:
+    def populate(room: FixtureRoom, player: EntityId, party: list[EntityId]) -> None:
         # Shopkeeper one tile east. Inventory carries a club and a
         # leather suit — both cheap enough for the standard 25g
         # starter wallet to buy at least one item. The shop itself is
         # never an enemy so the play mode stays in ``explore``.
-        px, py = room.world.positions.require(player).x, room.world.positions.require(player).y
+        # Companion-placement may have parked someone at ``(px+1, py)``
+        # so we evict them before placing the shopkeeper (issue #77).
+        px = room.world.positions.require(player).x
+        py = room.world.positions.require(player).y
+        shop_tile = (px + 1, py)
+        clear_tiles_for_spawn(
+            room.world,
+            tiles=(shop_tile,),
+            movable=tuple(party[1:]),
+            bounds=room.floor_bounds,
+            avoid=((px, py),),
+        )
         spawn_shopkeeper(
             room.world,
-            px + 1,
-            py,
+            shop_tile[0],
+            shop_tile[1],
             name="Quartermaster",
             gold=200,
             stock=(

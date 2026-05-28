@@ -55,6 +55,29 @@ def test_all_required_fixtures_registered() -> None:
 
 
 @pytest.mark.parametrize("name", _EXPECTED_FIXTURES)
+def test_fixture_no_spawn_collision_at_t0(name: str) -> None:
+    """Regression for #77: no two entities may share a tile at t=0.
+
+    The original bug had the deterministic companion-placement helper
+    drop a companion onto the same tile a scenario builder hardcoded
+    for its scenario entity (kobold / door / shopkeeper). The t=0
+    observation then reported a "You displaced X." line and the
+    intended subsystem never fired.
+    """
+    harness = PlaytestHarness(scenario_name=name, dev_mode=False)
+    positions: dict[tuple[int, int], list[str]] = {}
+    for entity, pos in harness.app.world.positions.values.items():
+        key = (pos.x, pos.y)
+        name_component = harness.app.world.names.get(entity)
+        label = name_component.value if name_component else f"entity_{entity}"
+        positions.setdefault(key, []).append(label)
+    collisions = {tile: labels for tile, labels in positions.items() if len(labels) > 1}
+    assert collisions == {}, (
+        f"Fixture {name!r} spawned multiple entities on the same tile: {collisions}"
+    )
+
+
+@pytest.mark.parametrize("name", _EXPECTED_FIXTURES)
 def test_fixture_loads_via_harness(name: str) -> None:
     """Every fixture must instantiate cleanly through the harness."""
     harness = PlaytestHarness(scenario_name=name, dev_mode=False)
