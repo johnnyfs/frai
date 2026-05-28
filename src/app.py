@@ -29,6 +29,7 @@ from src.core.actions import EndTurn, InteractAttempt, MoveAttempt, ToggleTurnMo
 from src.core.modes import PlayMode, UIMode, is_turn_based_play, play_mode_for_state
 from src.core.party import CompanionDefinition, companion_definitions_for_player_class
 from src.core.time import SECONDS_PER_ROUND, SECONDS_PER_TURN, advance as advance_world_clock
+from src.core.turn_controller import TurnController
 from src.core.turns import ActivationState
 from src.core.vision import PartyMemory
 from src.core.world import World
@@ -60,22 +61,26 @@ class App:
     world: World
     player: EntityId
     party: list[EntityId]
-    active_party_index: int
     dispatcher: Dispatcher
-    activation: ActivationState = field(default_factory=ActivationState)
+    turn: TurnController = field(init=False)
     messages: MessageState = field(default_factory=MessageState)
     ui_mode: UIMode = UIMode.start
-    play_mode: PlayMode = PlayMode.explore
     character_creation_state: CharacterCreationState | None = None
     facing: tuple[int, int] = (1, 0)
-    voluntary_turn_based: bool = False
     running: bool = True
     memory: PartyMemory = field(default_factory=PartyMemory)
     vision: VisionSystem = field(default_factory=VisionSystem)
     effect_applier: EffectApplier = field(init=False)
+    _initial_play_mode: PlayMode = PlayMode.explore
 
     def __post_init__(self) -> None:
         self.effect_applier = EffectApplier(self)
+        self.turn = TurnController(
+            party_provider=lambda: self.party,
+            hostiles_probe=lambda: bool(hostiles_requiring_battle(self.world, self.party)),
+            can_take_turn=lambda entity: _can_take_turn(self.world, entity),
+            play_mode=self._initial_play_mode,
+        )
         self.refresh_vision()
 
     def refresh_vision(self) -> None:
@@ -86,14 +91,53 @@ class App:
         """
         self.vision.tick(self.world, self.party, self.memory)
 
+    # ------------------------------------------------------------------
+    # Back-compat property surface
+    # ------------------------------------------------------------------
+    #
+    # The turn controller owns all of this state. These properties keep
+    # existing tests and the EffectApplier host protocol working without
+    # rewriting every call site.
+
+    @property
+    def active_party_index(self) -> int:
+        return self.turn.active_index
+
+    @active_party_index.setter
+    def active_party_index(self, value: int) -> None:
+        self.turn.active_index = value
+
+    @property
+    def activation(self) -> ActivationState:
+        return self.turn.active_activation
+
+    @activation.setter
+    def activation(self, value: ActivationState) -> None:
+        actor = self.turn.current_actor(self.player)
+        self.turn._activations[actor] = value
+
+    @property
+    def voluntary_turn_based(self) -> bool:
+        return self.turn.voluntary_turn_based
+
+    @voluntary_turn_based.setter
+    def voluntary_turn_based(self, value: bool) -> None:
+        self.turn.voluntary_turn_based = value
+
+    @property
+    def play_mode(self) -> PlayMode:
+        return self.turn.play_mode
+
+    @play_mode.setter
+    def play_mode(self, value: PlayMode) -> None:
+        self.turn.play_mode = value
+
     @property
     def focus(self) -> EntityId:
         return self.active_actor()
 
     def active_actor(self) -> EntityId:
-        if not is_turn_based_play(self.play_mode):
-            return self.player
-        return self.party[self.active_party_index]
+        return self.turn.current_actor(self.player)
 
     @property
     def current_play_mode(self) -> PlayMode:
@@ -108,7 +152,7 @@ class App:
             raise RuntimeError(
                 f"PlayMode is undefined while ui_mode={self.ui_mode!r}"
             )
-        return self.play_mode
+        return self.turn.play_mode
 
     def apply_effects(self, effects: list[Effect]) -> None:
         self.effect_applier.apply_all(effects)
@@ -132,6 +176,10 @@ class App:
 
         self.apply_effects(_run(command, self))
 
+    # ------------------------------------------------------------------
+    # Input routing
+    # ------------------------------------------------------------------
+
     def handle_key(self, key: int) -> None:
         if self.messages.awaiting_more and self.ui_mode is not UIMode.game_over:
             self.messages.advance()
@@ -144,7 +192,7 @@ class App:
             character_creation_state=self.character_creation_state,
         )
         if isinstance(action, EndTurn) and self.ui_mode is UIMode.play:
-            if is_turn_based_play(self.play_mode):
+            if is_turn_based_play(self.turn.play_mode):
                 self.advance_party_turn()
             return
         if isinstance(action, ToggleTurnMode) and self.ui_mode is UIMode.play:
@@ -155,14 +203,14 @@ class App:
             if action.dx == 0 and action.dy == 0:
                 action = InteractAttempt(action.actor, self.facing[0], self.facing[1], action.check_result)
             self.apply_effects(self._handle_interaction(action))
-            if not is_turn_based_play(self.play_mode):
+            if not is_turn_based_play(self.turn.play_mode):
                 self._tick_world_clock(SECONDS_PER_TURN)
             self.sync_play_mode()
             return
         if isinstance(action, MoveAttempt) and self.ui_mode is UIMode.play:
             if action.dx != 0 or action.dy != 0:
                 self.facing = (action.dx, action.dy)
-            if is_turn_based_play(self.play_mode):
+            if is_turn_based_play(self.turn.play_mode):
                 self.apply_effects(self._handle_active_move(action))
             else:
                 self.apply_effects(self._handle_explore_move(action))
@@ -173,6 +221,10 @@ class App:
         self.apply_effects(effects)
         self.sync_play_mode()
 
+    # ------------------------------------------------------------------
+    # Turn-mode and action handlers
+    # ------------------------------------------------------------------
+
     def sync_play_mode(self) -> None:
         """Recompute PlayMode from world state.
 
@@ -181,36 +233,18 @@ class App:
         etc.) do not change which PlayMode is active when dismissed.
         """
 
-        hostiles_present = bool(hostiles_requiring_battle(self.world, self.party))
-        if hostiles_present:
-            self.voluntary_turn_based = False
-        next_mode = play_mode_for_state(hostiles_present, self.voluntary_turn_based)
-        if next_mode is self.play_mode:
-            return
-        self.play_mode = next_mode
-        self.activation.reset_for_activation()
-        if not is_turn_based_play(next_mode):
-            self.active_party_index = 0
+        self.turn.sync_play_mode()
 
     def _toggle_turn_mode(self) -> list[Effect]:
-        if hostiles_requiring_battle(self.world, self.party):
-            self.voluntary_turn_based = False
-            return [EmitMessage("Cannot exit turn-based mode while hostiles are present.")]
-        self.voluntary_turn_based = not self.voluntary_turn_based
-        return [
-            EmitMessage(
-                "Entered turn-based mode."
-                if self.voluntary_turn_based
-                else "Exited turn-based mode."
-            )
-        ]
+        _succeeded, message = self.turn.toggle_turn_based()
+        return [EmitMessage(message)]
 
     def _handle_interaction(self, action: InteractAttempt) -> list[Effect]:
-        if is_turn_based_play(self.play_mode):
-            if self.activation.action_used:
+        if is_turn_based_play(self.turn.play_mode):
+            if self.turn.active_activation.action_used:
                 return [EmitMessage("Action already used.")]
             effects = self.dispatcher.dispatch(action, self.world)
-            self.activation.spend_action()
+            self.turn.consume_action()
             return effects
         return self.dispatcher.dispatch(action, self.world)
 
@@ -239,20 +273,20 @@ class App:
         displacement = _party_displacement(self.world, self.party, action)
         if displacement is not None:
             cost = movement_cost_for_attempt(self.world, action)
-            if not self.activation.spend_movement(cost):
+            if not self.turn.consume_movement(cost):
                 return [EmitMessage("No movement remaining.")]
             return displacement
 
         target = _hostile_target_for_move(self.world, action)
         if target is not None:
-            if self.activation.action_used:
+            if self.turn.active_activation.action_used:
                 return [EmitMessage("Action already used.")]
             effects = self.dispatcher.dispatch(action, self.world)
-            self.activation.spend_action()
+            self.turn.consume_action()
             return effects
 
         cost = movement_cost_for_attempt(self.world, action)
-        if not self.activation.can_spend_movement(cost):
+        if not self.turn.can_consume_movement(cost):
             return [EmitMessage("No movement remaining.")]
 
         effects = self.dispatcher.dispatch(action, self.world)
@@ -260,27 +294,18 @@ class App:
             isinstance(effect, MoveEntity) and effect.entity == action.actor
             for effect in effects
         ):
-            self.activation.spend_movement(cost)
+            self.turn.consume_movement(cost)
         return effects
 
     def advance_party_turn(self) -> None:
-        if not self.party:
-            return
-        for index in range(self.active_party_index + 1, len(self.party)):
-            if _can_take_turn(self.world, self.party[index]):
-                self.active_party_index = index
-                self.activation.reset_for_activation()
-                self.refresh_vision()
-                return
-        if self.play_mode is PlayMode.turn_based:
-            self.run_enemy_activations()
-        self._tick_world_clock(SECONDS_PER_ROUND)
-        for index, entity in enumerate(self.party):
-            if _can_take_turn(self.world, entity):
-                self.active_party_index = index
-                self.activation.reset_for_activation()
-                self.refresh_vision()
-                return
+        self.turn.end_turn_with_enemy_phase(
+            run_enemy_phase=self.run_enemy_activations,
+            tick_round=lambda: self._tick_world_clock(SECONDS_PER_ROUND),
+        )
+        # Vision is recomputed for whichever party member is now active.
+        # `apply_effects` already refreshes after the enemy phase, but
+        # the no-enemy rotation path needs an explicit kick.
+        self.refresh_vision()
 
     def _tick_world_clock(self, seconds: int) -> None:
         # Time-advance hook. Explore-mode moves/interactions tick a
@@ -304,11 +329,8 @@ class App:
         self.world = built.world
         self.player = built.player
         self.party = party
-        self.active_party_index = 0
-        self.activation = ActivationState()
+        self.turn.reset()
         self.facing = (1, 0)
-        self.voluntary_turn_based = False
-        self.play_mode = PlayMode.explore
         self.ui_mode = UIMode.start
         self.character_creation_state = None
         self.messages.emit("")
@@ -345,9 +367,10 @@ def create_app(
         world=built.world,
         player=built.player,
         party=party,
-        active_party_index=0,
         dispatcher=dispatcher,
-        play_mode=play_mode_for_state(bool(hostiles_requiring_battle(built.world, party))),
+        _initial_play_mode=play_mode_for_state(
+            bool(hostiles_requiring_battle(built.world, party))
+        ),
     )
 
 

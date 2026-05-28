@@ -60,8 +60,9 @@ def play_mode_for_state(
 ) -> PlayMode:
     """Derive the PlayMode from hostile presence and the voluntary flag.
 
-    Mirrors `turns.major_mode_for_state` for the new enum-based names so
-    callers do not have to translate strings.
+    Hostiles always win: forced turn-based mode overrides any voluntary
+    opt-in. With no hostiles, the voluntary flag picks between explore
+    and the player-opted turn-based mode.
     """
 
     if hostiles_present:

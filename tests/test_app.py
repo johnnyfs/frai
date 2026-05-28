@@ -209,22 +209,27 @@ def test_turn_advance_resets_resources_without_dropping_grants() -> None:
     app.world.positions.require(companion).y = 40
     app.world.positions.require(frog).x = 150
     app.world.positions.require(frog).y = 40
-    app.activation.extra_actions_total = 1
-    app.activation.spend_movement(3)
-    app.activation.spend_action()
-    app.activation.spend_bonus_action()
-    app.activation.spend_reaction()
-    app.activation.spend_extra_action()
+    player_activation = app.turn.activation_for(player)
+    player_activation.extra_actions_total = 1
+    player_activation.spend_movement(3)
+    player_activation.spend_action()
+    player_activation.spend_bonus_action()
+    player_activation.spend_reaction()
+    player_activation.spend_extra_action()
 
     app.handle_key(ord(" "))
 
     assert app.active_actor() == companion
+    # Companion's freshly-started turn has no consumed resources.
     assert app.activation.movement_used == 0
     assert app.activation.action_used is False
     assert app.activation.bonus_action_used is False
     assert app.activation.reaction_used is False
     assert app.activation.extra_actions_used == 0
-    assert app.activation.extra_actions_total == 1
+    # The player's extra-action grant survives across turns: per-actor
+    # state is keyed by entity id so grants do not bleed into other
+    # actors and do not get wiped when the party rotates.
+    assert player_activation.extra_actions_total == 1
 
 
 def test_inventory_mode_does_not_reset_action_economy() -> None:
