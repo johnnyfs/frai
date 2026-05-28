@@ -1,53 +1,62 @@
 # FRAI Vertical Slice Roadmap
 
-This roadmap is the lead-agent milestone DAG for turning the current Python terminal RPG into a playable vertical slice. It should be updated after each milestone merge.
+This roadmap is the lead-agent milestone DAG for turning the current Python terminal RPG into a playable vertical slice. It must be updated after each milestone merge.
+
+## Standing policies
+
+1. **`main` is always playable.** `uv run pytest` is green and `uv run python -m src.main` reaches the start screen without crashing. If either breaks after a merge, the next assignment is the fix.
+2. **Lead keeps `main` current.** Before reviewing, merging, or assigning, the lead has run `git fetch --all --prune` and `git pull` on `main`.
+3. **One `/playtest` agent runs at all times** once the agentic-playtest prerequisites (#13 observation, #29 cmdscripts, #30 harness, ≥1 fixture from #31) are met. Playtester rotates targets; the role is standing, not one-off.
+4. **Help and observation are kept current.** Every PR that changes player-facing commands, modes, or agent-visible state must update `?` help and the structured observation output. Reviewers enforce this.
+5. **Container/Inventory unification (#35)** scheduled after PR #10 lands.
 
 ## M0 Baseline
 
-Validation: `uv run pytest` on 2026-05-27: 55 passed.
+Validation: `uv run pytest` on 2026-05-27: 250 passed.
 
-Current architecture:
+Current architecture (post M0-M10 + skill rewrite):
 
 - `src/app.py`: top-level runtime state, input handling, effect application, party turn rotation, enemy activations, app restart, curses loop.
 - `src/core/world.py`: ECS-like world with typed component stores and tile grid.
-- `src/core/components.py`: save-relevant components such as position, presentation, blockers, character, combat stats, weapon, armor, faction.
+- `src/core/components.py`: save-relevant components including position, presentation, blockers, character, combat stats, weapon, armor, faction, door/lock/trap/container.
 - `src/core/actions.py`: structured action attempts/commands.
 - `src/core/effects.py`: structured effects applied by `App`.
-- `src/core/modes.py`: UI/game modes, currently start choice, normal, quit confirm, character creation, game over, inventory.
-- `src/systems/*`: dispatcher systems for start, character creation, quit, inventory, movement, combat, game over, rendering, messages, obstruction.
-- `src/map/room_builder.py`: handcrafted room plus side passages, two frogs, player placement.
-- `src/systems/render_system.py`: terminal projection and modal rendering.
-- `tests/*`: small unit/integration tests for current app flow, character creation, combat, input mapping, rendering helpers, and systems.
+- `src/core/modes.py`: UI/game modes.
+- `src/core/party.py`: deterministic four-member party composition based on player class role coverage.
+- `src/systems/*`: dispatcher systems for start, character creation, quit, inventory, movement, combat, game over, rendering, messages, obstruction, interaction, AI.
+- `src/map/room_builder.py` and world content: handcrafted overworld, town, forest, dungeon entrance, three dungeon levels.
+- `src/systems/render_system.py`: terminal projection and modal rendering with color.
+- `tests/*`: small unit/integration tests covering current systems.
 
 Current gameplay summary:
 
 - Python terminal-only UI using curses.
 - Start screen supports character creation or YOLO.
-- Character creation already exposes all D&D 5.1 SRD classes and core races with minimal class/race data.
-- Game world is a room-like dungeon map with side passages.
-- Turn-based battle mode is automatically triggered whenever any hostile with combat stats exists.
-- Explore mode returns when all hostiles are gone.
-- Party currently contains the player plus one generated companion.
-- Outside battle, the player leads and party members follow previous positions.
-- In battle, each player-controlled party member gets a turn, then enemies act.
-- Battle movement consumes feet from a per-activation movement budget.
-- Attacking consumes the current activation action.
-- Movement into a hostile converts into an attack attempt.
-- Party members can be displaced by moving into their tile.
-- Enemies use hardcoded chase-and-melee behavior.
-- Inventory UI only projects equipped armor/weapon.
+- Character creation exposes all D&D 5.1 SRD classes and core races with minimal class/race data.
+- Adaptive four-member party generated based on player class role coverage.
+- Overworld + town + forest + dungeon (3 levels) skeleton.
+- Terrain catalog with movement cost and color projection.
+- Turn-based mode triggered by enemy presence OR voluntary entry.
+- Action economy: action, movement, bonus action, reaction, extra-action hooks.
+- Enemy AI behaviors: chase, flee, wander, simple ranged/caster.
+- Interaction primitives: doors, locks, traps, containers via public `e` key with refusal messages for check-required interactions.
+- M12 in review (PR #10): inventory, equipment, shop buy/sell.
 
-Major current gaps:
+Major remaining gaps (now tracked as issues #12–#35):
 
-- No voluntary turn-based mode.
-- No explicit bonus action, reaction, or extra-action resources.
-- Turn/action state currently lives directly on `App`, not in a reusable turn model.
-- Enemy AI is hardcoded in `App.run_enemy_activations`.
-- Map/content is a single room world, not overworld/town/forest/dungeon levels.
-- Terrain has blocking only, no movement cost/color projection distinction.
-- No NPCs, dialogue, recruitment interactions, shops, traps, locks, doors, containers, quest state, spells/effects, inventory items, gold, or save/restore.
-- Rendering already avoids mutating world state but has no color use yet.
-- Persistence is absent; future state needs stable IDs and explicit schema/defaulting.
+- No vision/LOS/memory rendering (#17).
+- No targeting/examine/auto-walk (#22, #24, #23).
+- No conditions/duration system (#19).
+- No skill check machinery (#15).
+- No time/clocks model (#14).
+- No faction model (#16).
+- No downed/death-saves loop (#26).
+- No leveling (#27).
+- No loot/corpses on ground (#20).
+- No help screen / `?` online help (#28, #32).
+- No agent-readable observation mode (#13), no command scripting (#29), no playtest harness (#30), no fixtures (#31).
+- No rest/shelter zones (#21).
+- No save/restore yet (M16).
 
 Architecture direction:
 
@@ -61,129 +70,115 @@ Architecture direction:
 
 ## Milestone DAG
 
-| ID | Title | Dependencies | Owner / Branch | Status | Validation Target | PR |
-| --- | --- | --- | --- | --- | --- | --- |
-| M0 | Repository reconnaissance and baseline | none | lead / `main` | complete | `uv run pytest` | n/a |
-| M1 | Abstraction discipline pass | M0 | lead / `agent/m1-abstraction-pass` | complete | `uv run pytest` | #1 |
-| M2 | Test harness and tiny world fixtures | M0 | Cicero / `agent/m2-test-fixtures` | complete | `uv run pytest` | #2 |
-| M3 | Voluntary turn-based mode | M1, M2 | lead / `agent/m3-voluntary-turn-mode` | complete | `uv run pytest` | #3 |
-| M4 | Action economy expansion | M1, M2 | lead / `agent/m4-action-economy` | complete | `uv run pytest` | #6 |
-| M5 | Race/class creation foundation | M1, M2 | Harvey / `agent/m5-race-class-foundation` | complete | `uv run pytest` | #5 |
-| M6 | Party composition/adaptive companions | M5 | unassigned | pending | coverage logic tests | pending |
-| M7 | Map/terrain model expansion | M1, M2 | Planck / `agent/m7-terrain-model` | complete | `uv run pytest` | #4 |
-| M8 | World content skeleton | M7 | Volta / `agent/m8-world-skeleton` | complete | `uv run pytest` | #8 |
-| M9 | Interaction primitives | M4, M7 | unassigned | pending | door/lock/trap/container interaction tests | pending |
-| M10 | Combat variety and AI behaviors | M4, M7 | Gibbs / `agent/m10-ai-behaviors` | complete | `uv run pytest` | #11 |
-| M11 | Basic spells and effects | M4, M5 | unassigned | pending | resource/attack/save/heal/area tests | pending |
-| M12 | Items/equipment/shop | M5, M7 | unassigned | pending | buy/sell/equip tests | pending |
-| M13 | NPC and minimal dialogue | M6, M8 | unassigned | pending | info/recruit/shopkeeper interaction tests | pending |
-| M14 | Quest path | M8, M10, M11, M12, M13 | unassigned | pending | quest accept/boss/treasure/victory tests | pending |
-| M15 | Boss/villain and dungeon balancing | M10, M11, M14 | unassigned | pending | boss/content/balance smoke tests | pending |
-| M16 | Save/restore architecture | M1, M5, M8, M12 | unassigned | pending | save/load and old-save default tests | pending |
-| M17 | UI polish for playtest | M3, M4, M8, M12, M13, M16 | unassigned | pending | modal/message/status/render tests | pending |
-| M18 | End-to-end integration confidence | M14, M15, M16, M17 | unassigned | pending | character-to-victory integration tests | pending |
+| ID  | Title                                              | Dependencies                | Issue / PR        | Status     |
+| --- | -------------------------------------------------- | --------------------------- | ----------------- | ---------- |
+| M0  | Repository reconnaissance and baseline             | none                        | n/a               | complete   |
+| M1  | Abstraction discipline pass                        | M0                          | #1                | complete   |
+| M2  | Test harness and tiny world fixtures               | M0                          | #2                | complete   |
+| M3  | Voluntary turn-based mode                          | M1, M2                      | #3                | complete   |
+| M4  | Action economy expansion                           | M1, M2                      | #6                | complete   |
+| M5  | Race/class creation foundation                     | M1, M2                      | #5                | complete   |
+| M6  | Party composition/adaptive companions              | M5                          | #9                | complete   |
+| M7  | Map/terrain model expansion                        | M1, M2                      | #4                | complete   |
+| M8  | World content skeleton                             | M7                          | #8                | complete   |
+| M9  | Interaction primitives                             | M4, M7                      | #7                | complete   |
+| M10 | Combat variety and AI behaviors                    | M4, M7                      | #11               | complete   |
+| M11 | Basic spells and effects                           | M4, M5                      | pending           | pending    |
+| M12 | Items/equipment/shop                               | M5, M7                      | PR #10            | in review  |
+| M13 | NPC and minimal dialogue                           | M6, M8                      | pending           | pending    |
+| M14 | Quest path                                         | M8, M10, M11, M12, M13      | pending           | pending    |
+| M15 | Boss/villain and dungeon balancing                 | M10, M11, M14               | pending           | pending    |
+| M16 | Save/restore architecture                          | M1, M5, M8, M12             | pending           | pending    |
+| M17 | UI polish for playtest                             | M3, M4, M8, M12, M13, M16   | pending           | pending    |
+| M18 | End-to-end integration confidence                  | M14, M15, M16, M17          | pending           | pending    |
+| M19 | Vision, lighting, LOS, and memory rendering        | M1, M2, M7                  | #17               | unassigned |
+| M20 | Targeting mode                                     | M4, M19                     | #22               | unassigned |
+| M21 | Examine and look command                           | M19, M20                    | #24               | unassigned |
+| M22 | Pathing / auto-walk                                | M3, M7, M19                 | #23               | unassigned |
+| M23 | Stealth, noise, and perception                     | M4, M19, M26, M28           | #25               | unassigned |
+| M24 | Conditions, statuses, and durations                | M4, M27                     | #19               | unassigned |
+| M25 | Leveling, XP, and rewards                          | M5, M10, M14                | #27               | unassigned |
+| M26 | Skill checks and DC checks                         | M5                          | #15               | unassigned |
+| M27 | Time and clocks                                    | M4                          | #14               | unassigned |
+| M28 | Faction and hostility model                        | M3, M6, M13                 | #16               | unassigned |
+| M29 | Downed, unconscious, death saves, and recovery     | M24, M34                    | #26               | unassigned |
+| M30 | Loot containers, corpses, and dropped items        | M9, M12                     | #20               | unassigned |
+| M31 | Command help and keybinding screen                 | M17                         | #28               | unassigned |
+| M32 | Error and message discipline                       | M17                         | #18               | unassigned |
+| M33 | Debug/dev tools                                    | M2                          | #12               | unassigned |
+| M34 | Rest system and shelter zones                      | M4, M7, M11, M27            | #21               | unassigned |
+| M35 | Agent-readable observation mode                    | (foundation)                | #13               | unassigned |
+| M36 | Command scripting and agent input mode             | M22, M35                    | #29               | unassigned |
+| M37 | Playtest harness                                   | M35, M36                    | #30               | unassigned |
+| M38 | Scenario fixtures for playtesting                  | M37                         | #31               | unassigned |
+| M39 | Online help (`?`)                                  | M31                         | #32               | unassigned |
+| M40 | Playtest bug-report workflow                       | M35, M37                    | #33               | unassigned |
+| M41 | Maintain-one-playtester process                    | M35, M36, M37, M38          | #34               | unassigned |
+| M42 | Unify Container with Inventory                     | M12 (PR #10)                | #35               | unassigned |
+
+## Unblocked work right now (post-#10 merge)
+
+After PR #10 (M12) lands, the following milestones have ALL dependencies merged and are ready to assign:
+
+- **#12 M33 Debug/dev tools** (depends on M2 done)
+- **#13 M35 Observation mode** (no deps — pure foundation; high priority because it unblocks the whole agentic-playtest tier)
+- **#14 M27 Time and clocks** (M4 done)
+- **#15 M26 Skill checks** (M5 done)
+- **#16 M28 Faction model** (M3, M6 done; M13 still pending but core is independent)
+- **#17 M19 Vision/LOS** (M1, M2, M7 done)
+- **#18 M32 Error/message discipline** (depends on M17, but a small standalone catalog can start now)
+- **#20 M30 Loot/corpses** (M9 done; M12 about to land)
+
+Priority for first wave after M12 merges: **M19 vision, M27 time, M26 skill checks, M33 debug, M35 observation** — these unblock the largest downstream sub-DAGs.
 
 ## Milestone Detail
 
-M1 - Abstraction discipline pass:
+(See each issue body for full scope, non-goals, acceptance tests, and architectural notes.)
 
-- Clarify `App` boundaries versus reusable game/turn/session state.
-- Preserve explore vs battle semantics.
-- Preserve party following and battle party turn rotation.
-- Separate input command, world intent, action resource checks, rendering projection, and effect application as much as possible without feature explosion.
+M1 - Abstraction discipline pass: Clarify `App` boundaries vs reusable game/turn/session state. Preserve explore vs battle semantics. Preserve party following and battle party turn rotation. Separate input command, world intent, action resource checks, rendering projection, and effect application.
 
-M2 - Test harness and tiny world fixtures:
+M2 - Test harness and tiny world fixtures: deterministic tiny map / actor / party / enemy fixture helpers; action-resolution helper tests; terminal rendering excluded from core tests.
 
-- Add deterministic tiny map fixture helpers.
-- Add actor/party/enemy fixture helpers.
-- Add action-resolution helper tests.
-- Keep terminal rendering excluded from core tests.
+M3 - Voluntary turn-based mode: player command for entering/exiting turn-based mode when legal; preserves hostile-triggered combat.
 
-M3 - Voluntary turn-based mode:
+M4 - Action economy: action, movement, bonus action, reaction, extra-action; reset at correct turn boundaries.
 
-- Add player command for entering/exiting turn-based mode when legal.
-- Preserve hostile-triggered battle mode.
-- Ensure exit rules do not bypass nearby hostile combat.
+M5 - Race/class creation foundation: every SRD race/class selectable; minimal mechanical data for level 1.
 
-M4 - Action economy expansion:
+M6 - Party composition: adaptive four-person party covering martial / divine / arcane / expert roles based on player class.
 
-- Extend activation resource tracking to action, movement, bonus action, reaction, and extra-action hooks.
-- Keep movement/action consumption distinct.
-- Reset resources at correct turn boundaries.
+M7 - Map/terrain model: terrain catalog with movement cost, blocking, color projection.
 
-M5 - Race/class creation foundation:
+M8 - World content skeleton: overworld, town, forest, dungeon entrance, three dungeon levels.
 
-- Keep all SRD races/classes selectable.
-- Promote class/race data enough to support level-1 HP, basic proficiencies, starting equipment, and later spell/resource hooks.
-- Do not attempt full SRD class mechanics in this milestone.
+M9 - Interaction primitives: doors, locks, traps, containers via generic `InteractAttempt` action. Public `e` path emits refusal messages for check-required interactions until skill-check machinery (M26) is in.
 
-M6 - Party composition/adaptive companions:
+M10 - Combat variety and AI: chase, flee, wander, simple ranged/caster behaviors.
 
-- Create classic party of four based on player class role coverage.
-- Player rogue should get martial/divine/arcane support.
-- Player cleric should get rogue/martial/arcane support.
-- All player classes should produce four named members.
+M11 - Basic spells and effects: representative attack spell, save spell, healing spell, area/control effect. Consumes spell resources through action system.
 
-M7 - Map/terrain model expansion:
+M12 - Items/equipment/shop: inventory, equipment slots, weapon/armor stats, consumables, shop buy/sell/equip. PR #10 in review.
 
-- Add terrain catalog for overworld, forest, town, dungeon, walls, water/blocked, and difficult terrain.
-- Add movement costs and color/render token projection.
-- Keep color as rendering projection, not game state mutation.
+M13 - NPC and minimal dialogue: info NPCs, recruitable adventurers, shopkeeper interaction. Human NPCs render as `@`, joined party as `#`.
 
-M8 - World content skeleton:
+M14 - Quest path: town/tavern hook → dungeon boss treasure → victory flag.
 
-- Build connected overworld, town, forest, dungeon entrance, and three dungeon levels.
-- Handcrafted content is acceptable if it remains generation-compatible.
+M15 - Boss/villain and dungeon balancing: level-1-targeted three-level dungeon with boss creature, meaningful encounters, significant treasure.
 
-M9 - Interaction primitives:
+M16 - Save/restore architecture: schema version, stable ids, migration/defaulting, JSON-safe save data.
 
-- Add generic interaction attempts for doors, locks, traps, and containers.
-- Consume appropriate action resource.
-- Keep data-driven interaction state in components/config.
+M17 - UI polish for playtest: status bar, message log/more prompt, modal menus, inventory/shop/dialogue screens, color pass.
 
-M10 - Combat variety and AI behaviors:
+M18 - End-to-end integration: character creation → party creation → shop → recruit → dungeon entry → sample combat → boss defeat → victory → mid-run save/load.
 
-- Move enemy AI out of `App`.
-- Add chase, flee, wander/random, and simple ranged/caster-ish behavior where feasible.
-- Ensure AI chooses legal actions and does not crash when blocked.
+M19–M42: see each linked issue.
 
-M11 - Basic spells and effects:
+## Roadmap update protocol
 
-- Add representative spell action path: attack spell, saving throw spell, healing spell, area/control effect.
-- Consume spell resources through the action system.
-- Avoid one-off UI special cases.
+After every PR merge, the lead must:
 
-M12 - Items/equipment/shop:
-
-- Add inventory items, gold, equipment slots, weapon/armor stats, consumables, and shop buy/sell/equip paths.
-- Keep shop inventory and player inventory separate.
-
-M13 - NPC and minimal dialogue:
-
-- Add info NPCs, recruitable adventurers, and shopkeeper interaction.
-- Human NPCs render as `@`; joined party members render as `#`.
-- Dialogue remains simple deterministic state, not rendering hardcode.
-
-M14 - Quest path:
-
-- Add a town/tavern mission hook leading to dungeon boss treasure.
-- Add quest acceptance and victory flag.
-
-M15 - Boss/villain and dungeon balancing:
-
-- Add level-1-targeted boss-like creature, meaningful encounters, and significant treasure.
-- Keep balance assumptions testable.
-
-M16 - Save/restore architecture:
-
-- Add schema version, stable IDs, migration/defaulting strategy, and JSON-safe save data.
-- Verify old minimal save defaults and loaded games can continue.
-
-M17 - UI polish for playtest:
-
-- Add usable status bar, message log/more prompt behavior, modal menus, inventory/shop/dialogue screens, and color pass.
-- Keep UI commands distinct from world intents.
-
-M18 - End-to-end integration confidence:
-
-- Add small integration tests covering character creation, party creation, shop, recruit, dungeon entry, sample combat, boss defeat/victory, and mid-run save/load.
+1. Flip the row's Status to `complete` (or note follow-up issues).
+2. Add the PR number.
+3. Mark newly unblocked milestones in the "Unblocked work right now" section.
+4. Re-run `/assign` to dispatch the next batch.
+5. Trigger `/playtest` smoke on the merged change once prerequisites exist.
