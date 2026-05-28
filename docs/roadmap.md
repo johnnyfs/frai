@@ -66,7 +66,7 @@ Architecture direction:
 | M0 | Repository reconnaissance and baseline | none | lead / `main` | complete | `uv run pytest` | n/a |
 | M1 | Abstraction discipline pass | M0 | lead / `agent/m1-abstraction-pass` | complete | `uv run pytest` | #1 |
 | M2 | Test harness and tiny world fixtures | M0 | Cicero / `agent/m2-test-fixtures` | complete | `uv run pytest` | #2 |
-| M3 | Voluntary turn-based mode | M1, M2 | unassigned | pending | voluntary/enemy-triggered mode tests | pending |
+| M3 | Voluntary turn-based mode | M1, M2 | lead / `agent/m3-voluntary-turn-mode` | complete | `uv run pytest` | #3 |
 | M4 | Action economy expansion | M1, M2 | unassigned | pending | action/move/bonus/reaction reset tests | pending |
 | M5 | Race/class creation foundation | M1, M2 | unassigned | pending | all race/class level-1 creation tests | pending |
 | M6 | Party composition/adaptive companions | M5 | unassigned | pending | coverage logic tests | pending |
