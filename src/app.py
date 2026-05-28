@@ -21,10 +21,14 @@ from src.core.effects import (
     EmitMessage,
     KillEntity,
     MoveEntity,
+    OpenEntity,
+    RemoveBlocker,
     QuitGame,
     RestartGame,
     SetCharacterSheet,
     SetMode,
+    DisarmTrap,
+    UnlockEntity,
 )
 from src.core.entity import EntityId
 from src.core.actions import EndTurn, MoveAttempt, ToggleTurnMode
@@ -44,6 +48,7 @@ from src.systems.inventory_system import InventorySystem
 from src.systems.character_creation_system import CharacterCreationSystem
 from src.systems.ai_system import EnemyAISystem
 from src.systems.combat_system import CombatSystem
+from src.systems.interaction_system import InteractionSystem
 from src.systems.message_system import MessageState
 from src.systems.movement_system import (
     MovementContextResolver,
@@ -114,6 +119,21 @@ class App:
                     self.world.remove_entity(effect.entity)
             elif isinstance(effect, RestartGame):
                 self.restart()
+            elif isinstance(effect, OpenEntity):
+                if self.world.doors.has(effect.entity):
+                    self.world.doors.require(effect.entity).is_open = True
+                if self.world.containers.has(effect.entity):
+                    self.world.containers.require(effect.entity).is_open = True
+            elif isinstance(effect, UnlockEntity):
+                lock = self.world.locks.get(effect.entity)
+                if lock is not None:
+                    lock.is_locked = False
+            elif isinstance(effect, DisarmTrap):
+                trap = self.world.traps.get(effect.entity)
+                if trap is not None:
+                    trap.is_armed = False
+            elif isinstance(effect, RemoveBlocker):
+                self.world.blockers.values.pop(effect.entity, None)
         if messages:
             self.messages.emit(" ".join(message for message in messages if message))
 
@@ -270,6 +290,7 @@ def create_app(width: int = WORLD_WIDTH, height: int = WORLD_HEIGHT) -> App:
             InventorySystem(),
             CharacterCreationSystem(),
             QuitSystem(),
+            InteractionSystem(),
             movement,
             combat,
         ]

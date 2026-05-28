@@ -65,6 +65,14 @@ class ToggleTurnMode:
     pass
 
 
+@dataclass(frozen=True, slots=True)
+class InteractAttempt:
+    actor: EntityId
+    dx: int
+    dy: int
+    check_result: int | None = None
+
+
 Action: TypeAlias = (
     MoveAttempt
     | QuitRequest
@@ -77,4 +85,5 @@ Action: TypeAlias = (
     | CloseInventory
     | EndTurn
     | ToggleTurnMode
+    | InteractAttempt
 )

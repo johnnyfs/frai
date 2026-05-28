@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Generic, TypeVar
 
-from src.core.components import AI, Armor, BlocksMovement, Character, CombatStats, Creature, Faction, Name, PlayerControlled, Position, Presentation, Weapon
+from src.core.components import AI, Armor, BlocksMovement, Character, CombatStats, Container, Creature, Door, Faction, Lock, Name, PlayerControlled, Position, Presentation, Trap, Weapon
 from src.core.entity import EntityId
 from src.map.tiles import OUTSIDE, Tile
 
@@ -61,6 +61,10 @@ class World:
     weapons: ComponentStore[Weapon] = field(default_factory=lambda: ComponentStore({}))
     armor: ComponentStore[Armor] = field(default_factory=lambda: ComponentStore({}))
     factions: ComponentStore[Faction] = field(default_factory=lambda: ComponentStore({}))
+    doors: ComponentStore[Door] = field(default_factory=lambda: ComponentStore({}))
+    locks: ComponentStore[Lock] = field(default_factory=lambda: ComponentStore({}))
+    traps: ComponentStore[Trap] = field(default_factory=lambda: ComponentStore({}))
+    containers: ComponentStore[Container] = field(default_factory=lambda: ComponentStore({}))
 
     def create_entity(self) -> EntityId:
         entity = EntityId(self.next_entity_id)
@@ -112,6 +116,10 @@ class World:
             self.weapons,
             self.armor,
             self.factions,
+            self.doors,
+            self.locks,
+            self.traps,
+            self.containers,
         ):
             store.values.pop(entity, None)
 
