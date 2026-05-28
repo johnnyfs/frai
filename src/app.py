@@ -51,6 +51,7 @@ from src.systems.input_system import map_key
 from src.systems.inventory_system import InventorySystem
 from src.systems.character_creation_system import CharacterCreationSystem
 from src.systems.ai_system import EnemyAISystem
+from src.systems.awareness_system import hostiles_requiring_battle
 from src.systems.combat_system import CombatSystem
 from src.systems.interaction_system import InteractionSystem
 from src.systems.message_system import MessageState
@@ -180,7 +181,7 @@ class App:
         self.sync_major_mode()
 
     def sync_major_mode(self) -> None:
-        hostiles_present = _hostiles_in_sight(self.world, self.party)
+        hostiles_present = bool(hostiles_requiring_battle(self.world, self.party))
         if hostiles_present:
             self.voluntary_turn_based = False
         next_mode = major_mode_for_state(hostiles_present, self.voluntary_turn_based)
@@ -192,7 +193,7 @@ class App:
             self.active_party_index = 0
 
     def _toggle_turn_mode(self) -> list[Effect]:
-        if _hostiles_in_sight(self.world, self.party):
+        if hostiles_requiring_battle(self.world, self.party):
             self.voluntary_turn_based = False
             return [EmitMessage("Cannot exit turn-based mode while hostiles are present.")]
         self.voluntary_turn_based = not self.voluntary_turn_based
@@ -328,7 +329,7 @@ def create_app(width: int = WORLD_WIDTH, height: int = WORLD_HEIGHT) -> App:
         party=party,
         active_party_index=0,
         dispatcher=dispatcher,
-        major_mode=major_mode_for_state(_hostiles_in_sight(built.world, party)),
+        major_mode=major_mode_for_state(bool(hostiles_requiring_battle(built.world, party))),
     )
 
 
@@ -471,21 +472,6 @@ def _party_displacement(
 def _displacement_name(world: World, entity: EntityId) -> str:
     name = world.name_for(entity)
     return "Player" if name == "you" else name
-
-
-def _hostiles_in_sight(world: World, party: list[EntityId]) -> bool:
-    party_factions = {
-        faction.value
-        for entity in party
-        if (faction := world.factions.get(entity)) is not None
-    }
-    for entity, stats in world.combat_stats.values.items():
-        if stats.hit_points <= 0 or not world.positions.has(entity):
-            continue
-        faction = world.factions.get(entity)
-        if faction is not None and faction.value not in party_factions:
-            return True
-    return False
 
 
 def _can_take_turn(world: World, entity: EntityId) -> bool:
