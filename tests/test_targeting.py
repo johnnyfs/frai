@@ -23,6 +23,7 @@ from src.core.targeting import (
     any_visible_tile,
     chebyshev,
     hostile_entity,
+    make_spell_target_predicate,
     make_visible_predicate,
 )
 from src.core.vision import PartyMemory
@@ -389,3 +390,93 @@ def test_visible_predicate_against_live_world() -> None:
     assert predicate(world, 3, 2, (2, 2)) is True
     # Behind wall: rejected.
     assert predicate(world, 6, 2, (2, 2)) is False
+
+
+# ---------------------------------------------------------------------
+# make_spell_target_predicate — bug #100 / #101 regressions
+# ---------------------------------------------------------------------
+
+
+def test_spell_target_predicate_rejects_caster_self_for_damage() -> None:
+    """Bug #100: damage spells must not accept the caster's own tile.
+
+    Enter-Enter on the spell menu used to confirm the cursor sitting on
+    the caster — Magic Missile would kill itself.
+    """
+
+    world = build_tiny_map()
+    caster = add_actor(world, 2, 2)
+    predicate = make_spell_target_predicate(
+        caster, radius=6, require_hostile=True, allow_self_target=False
+    )
+    assert predicate(world, 2, 2, (2, 2)) is False
+
+
+def test_spell_target_predicate_accepts_caster_when_self_target_allowed() -> None:
+    """Healing spells (allow_self_target=True) may target the caster."""
+
+    world = build_tiny_map()
+    caster = add_actor(world, 2, 2)
+    predicate = make_spell_target_predicate(
+        caster, radius=6, require_hostile=False, allow_self_target=True
+    )
+    assert predicate(world, 2, 2, (2, 2)) is True
+
+
+def test_spell_target_predicate_rejects_friendly_for_damage_spell() -> None:
+    """Bug #101: damage spells must not be allowed to strike party allies."""
+
+    world = build_tiny_map()
+    caster = add_actor(world, 2, 2, faction="player")
+    add_actor(world, 3, 2, name="ally", faction="player", glyph="#")
+    predicate = make_spell_target_predicate(
+        caster, radius=6, require_hostile=True, allow_self_target=False
+    )
+    assert predicate(world, 3, 2, (2, 2)) is False
+
+
+def test_spell_target_predicate_accepts_hostile_for_damage_spell() -> None:
+    """The standard happy path: a hostile in LOS is a legal damage target."""
+
+    world = build_tiny_map()
+    caster = add_actor(world, 2, 2, faction="player")
+    add_enemy(world, 4, 2)
+    predicate = make_spell_target_predicate(
+        caster, radius=6, require_hostile=True, allow_self_target=False
+    )
+    assert predicate(world, 4, 2, (2, 2)) is True
+
+
+def test_spell_target_predicate_accepts_ally_for_friendly_spell() -> None:
+    """Cure Wounds-style spells should accept an ally tile."""
+
+    world = build_tiny_map()
+    caster = add_actor(world, 2, 2, faction="player")
+    add_actor(world, 3, 2, name="ally", faction="player", glyph="#")
+    predicate = make_spell_target_predicate(
+        caster, radius=6, require_hostile=False, allow_self_target=True
+    )
+    assert predicate(world, 3, 2, (2, 2)) is True
+
+
+def test_spell_target_predicate_rejects_hostile_for_friendly_spell() -> None:
+    """Healing spells should not be aimed at hostile creatures."""
+
+    world = build_tiny_map()
+    caster = add_actor(world, 2, 2, faction="player")
+    add_enemy(world, 4, 2)
+    predicate = make_spell_target_predicate(
+        caster, radius=6, require_hostile=False, allow_self_target=True
+    )
+    assert predicate(world, 4, 2, (2, 2)) is False
+
+
+def test_spell_target_predicate_rejects_empty_tile() -> None:
+    """A tile with no combat-statted entity is not a valid spell target."""
+
+    world = build_tiny_map()
+    caster = add_actor(world, 2, 2, faction="player")
+    predicate = make_spell_target_predicate(
+        caster, radius=6, require_hostile=True, allow_self_target=False
+    )
+    assert predicate(world, 4, 2, (2, 2)) is False

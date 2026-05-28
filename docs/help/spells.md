@@ -17,6 +17,23 @@ modal; the standard cursor keys (`h j k l y u b n`) move the cursor,
 `Enter` or `Space` confirms, and `q` or `Esc` cancels without
 consuming a slot.
 
+## Target validity
+
+Single-entity spell targets are checked by
+`make_spell_target_predicate` (`src/core/targeting.py`):
+
+- **Damage spells** (`magic_missile`, `firebolt`) require a *hostile*
+  target with combat stats. Friendly party members are rejected (no
+  friendly-fire). The caster's own tile is also rejected — confirming
+  on the caster's tile would otherwise self-target whenever the cursor
+  opens on the caster.
+- **Friendly / heal spells** (`cure_wounds`) require a non-hostile
+  target. The caster's own tile is allowed only when the spell
+  declares `allow_self_target=True` (Cure Wounds does).
+
+An illegal confirm emits `"Invalid target."`, keeps the modal open,
+and consumes no slot.
+
 ## Catalog
 
 The current catalog (`src/core/spells.py`) is the M11 representative
