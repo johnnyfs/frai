@@ -467,7 +467,7 @@ class App:
             self.turn.consume_movement(cost)
         return effects
 
-    def _run_autowalk(self) -> None:
+    def _run_autowalk(self) -> InterruptReason | None:
         """Drive an in-progress autowalk to completion or interrupt.
 
         Each iteration synthesises one ``MoveAttempt`` in the walk's
@@ -476,6 +476,12 @@ class App:
         autowalk-active state field is cleared before we return so a
         subsequent key press starts fresh, and an interrupt message is
         emitted so the player knows why the walk stopped.
+
+        Returns the :class:`InterruptReason` that ended the walk so the
+        M36 script runner (and any future debug tooling) can branch on
+        a structured value instead of grepping the message log. The
+        player-facing key-press path ignores the return value — it
+        already has the banner the runner emitted.
 
         Implementation note: we read the active actor's position before
         and after each dispatch to decide whether the actor moved. The
@@ -486,7 +492,7 @@ class App:
 
         request = self.autowalk
         if request is None:
-            return
+            return None
         steps = 0
         max_steps = max(0, request.max_steps)
         last_reason: InterruptReason | None = None
@@ -542,6 +548,7 @@ class App:
                 # Always surface these reasons — they aren't otherwise
                 # signaled by the message log.
                 self.messages.emit(interrupt_message(last_reason))
+        return last_reason
 
     def advance_party_turn(self) -> None:
         self.turn.end_turn_with_enemy_phase(

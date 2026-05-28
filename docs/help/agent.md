@@ -1,8 +1,10 @@
-# Agent commands and observation (M35)
+# Agent commands and observation (M35, M36)
 
 This file describes the read-only state surface that the agentic
-playtester (M37) consumes. Agents do not read the curses framebuffer;
-they consume a structured `Observation` snapshot.
+playtester (M37) consumes and the command-script language agents use to
+drive the App. Agents do not read the curses framebuffer; they consume a
+structured `Observation` snapshot and send commands either as parsed
+`Command` records or as a single compact script string.
 
 The `?` help integration (M39) will surface this file under a debug
 section once that milestone lands. Until then, this file is reference
@@ -73,19 +75,88 @@ When `play_mode` is `turn_based` or `voluntary_turn`, `combat` reports:
 Once M44 (`TurnController`) lands the full initiative roster will be
 added; agents should treat the field set as additive.
 
+## Command-script language (M36)
+
+Agents send commands as a single text "script". The script grammar is
+deliberately compact so a single-line decision can carry up to a few
+dozen keystrokes' worth of intent without escaping headaches.
+
+### Quick reference
+
+```python
+from src.app import create_app
+from src.ui.script_runner import run_script
+
+app = create_app()
+app.handle_key(ord("y"))                  # YOLO into play.
+outcomes = run_script(app, "5l;,;i")      # walk 5 east, pick up, open inventory
+for outcome in outcomes:
+    print(outcome.command, outcome.steps_taken, outcome.interrupt_reason)
+```
+
+### Grammar
+
+| Token              | Meaning                                          |
+| ---                | ---                                              |
+| `h j k l y u b n`  | Rogue-style movement (west/south/north/east + diagonals). |
+| `<N><dir>`         | Repeat-movement: walk up to `N` tiles. Only valid before a movement letter. |
+| `e`                | Interact with the facing tile.                   |
+| `,`                | Pick up items on the actor's tile.               |
+| `i`                | Open/close inventory.                            |
+| `r`                | Short rest. No-op until M34 lands.               |
+| `x`                | Examine. No-op until M41 lands.                  |
+| `?`                | Open help. No-op until M39 lands.                |
+| `.`                | Wait one tick.                                   |
+| `Enter`            | Confirm the current modal.                       |
+| `Esc`              | Cancel the current modal.                        |
+| `;` or newline     | Command separator.                               |
+| `# ...`            | Whole-line comment (must start the line).        |
+
+The parser raises `CommandScriptError` for any malformed token; the
+caller (harness or `--script` flag) should surface the error and not
+mutate further state. Whitespace around tokens is ignored, as are
+blank and comment lines.
+
+### Repeat-movement and interrupts
+
+A `<N><dir>` move is conceptually identical to an M22 auto-walk with
+`max_steps = N`. Internally the runner sets `app.autowalk` and lets
+`App._run_autowalk` drive the loop, which consults the same
+`step_autowalk` predicate the keyboard auto-walk uses. The interrupt
+vocabulary is identical (see `docs/help/autowalk.md`):
+
+| Reason                  | Trigger                                          |
+| ---                     | ---                                              |
+| `out_of_steps`          | `N` budget consumed.                             |
+| `modal_opened`          | A modal stole focus (`UIMode != play`).          |
+| `combat_started`        | Hostile presence flipped on.                     |
+| `new_hostile_visible`   | A hostile entered the party's vision.            |
+| `blocked`               | A step was refused (wall, door, occupant).       |
+| `event_message`         | The game emitted a player-relevant message.      |
+| `low_hp`                | Reserved for M24 conditions/statuses.            |
+
+`run_command`/`run_script` returns a list of `CommandOutcome` records
+exposing `steps_taken`, `interrupt_reason`, and a fresh
+`observation_after` snapshot.
+
 ## Harness usage (M37 hook)
 
 The harness should call `observe(app)` after every command and diff
-against the previous observation. Suggested flow:
+against the previous observation. With the M36 script runner the loop is:
 
 ```python
+from src.ui.observation import observe
+from src.ui.script_runner import run_script
+
 last = observe(app)
 while not app.terminated:
-    command = agent.decide(last)
-    apply_command(app, command)  # via App.run_debug_command or input
-    current = observe(app)
-    agent.update_from_delta(last, current)
-    last = current
+    script = agent.decide(last)                  # e.g. "5l;i"
+    outcomes = run_script(app, script)
+    for outcome in outcomes:
+        agent.update_from_delta(last, outcome.observation_after)
+        last = outcome.observation_after
+        if outcome.interrupt_reason is not None:
+            agent.note_interrupt(outcome.interrupt_reason)
 ```
 
 `observe()` never throws, never mutates, and never depends on the
