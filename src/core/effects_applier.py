@@ -235,13 +235,64 @@ def _apply_damage_entity(host: "App", effect: DamageEntity) -> None:
     all damage. This is intentionally checked here, not in the combat system,
     so anything that emits `DamageEntity` (combat, traps, future effects) is
     automatically respected.
+
+    M29: damage that reduces a *player-controlled* combat-statted actor
+    to 0 HP applies the SRD ``unconscious`` condition and seeds a
+    :class:`DeathSaves` row instead of killing the actor outright.
+    Damage on an actor already at 0 HP is interpreted as an automatic
+    death-save failure. Massive damage (an amount that would overflow
+    the actor's ``max_hit_points`` pool) routes through real death —
+    :class:`KillEntity` is enqueued for the next dispatch.
+
+    NPC enemies (no ``PlayerControlled``) follow the legacy path: HP
+    clamps at 0 and the subsequent ``KillEntity`` finalises the kill.
+    The M28 distinction means hostile creatures die outright when their
+    HP runs out — only PCs (and recruited companions, which carry
+    ``PlayerControlled``) earn death saves.
     """
+    from src.core.death_saves import begin_downed, record_damage_failure
+
     god = host.world.god_modes.get(effect.entity)
     if god is not None and god.enabled:
         return
     stats = host.world.combat_stats.get(effect.entity)
-    if stats is not None:
-        stats.hit_points = max(0, stats.hit_points - effect.amount)
+    if stats is None:
+        return
+
+    is_pc = host.world.player_controlled.has(effect.entity)
+    previous_hit_points = stats.hit_points
+
+    if not is_pc:
+        # Legacy behavior for non-PC combatants: clamp at 0; combat /
+        # spell systems still emit KillEntity to finalise the kill.
+        stats.hit_points = max(0, previous_hit_points - effect.amount)
+        return
+
+    # Damage landing on an already-downed PC is a death-save failure.
+    if previous_hit_points <= 0 and host.world.death_saves.get(effect.entity) is not None:
+        followups = record_damage_failure(host.world, effect.entity, effect.amount)
+        if followups:
+            host.effect_applier.apply_all(list(followups))
+        return
+
+    new_hit_points = previous_hit_points - effect.amount
+    # Massive damage (per SRD): if the blow would drive the actor below
+    # the negative of their max HP, it's an outright kill — bypass the
+    # downed pipeline and route through KillEntity directly.
+    if new_hit_points <= -stats.max_hit_points:
+        stats.hit_points = 0
+        host.effect_applier.apply_all([KillEntity(effect.entity)])
+        return
+
+    stats.hit_points = max(0, new_hit_points)
+    if stats.hit_points == 0 and previous_hit_points > 0:
+        # Newly downed PC: apply unconscious + DeathSaves row. Follow-up
+        # effects are routed through the normal applier so the condition
+        # store mutates through the standard ApplyCondition handler.
+        followups = begin_downed(host.world, effect.entity)
+        if followups:
+            host.effect_applier.apply_all(list(followups))
+        _check_party_wipe(host)
 
 
 def _apply_kill_entity(host: "App", effect: KillEntity) -> None:
@@ -256,11 +307,39 @@ def _apply_kill_entity(host: "App", effect: KillEntity) -> None:
     :class:`~src.core.components.BossMarker` (if any) so the post-kill
     quest hook can credit the boss token even after the entity row
     has been wiped from the component stores.
+
+    M29: a KillEntity that arrives while a *player-controlled* actor
+    is in the freshly downed state (DeathSaves present, fewer than
+    ``FAILURES_TO_DIE`` failures) is treated as a downed transition
+    rather than a real death. This preserves existing combat behavior —
+    CombatSystem and SpellSystem still emit KillEntity when an attack
+    reduces HP to 0, and the kill handler reinterprets the effect
+    against the actor's current state. Real deaths (death-save failure
+    tally, massive damage) bypass this guard because the death-save
+    driver / damage handler pop the DeathSaves row before emitting
+    KillEntity. NPC enemies follow the legacy hard-kill path.
     """
+    from src.core.death_saves import FAILURES_TO_DIE
+
+    is_pc = host.world.player_controlled.has(effect.entity)
+    saves = host.world.death_saves.get(effect.entity)
+    if is_pc and saves is not None and saves.failures < FAILURES_TO_DIE:
+        # Freshly downed PC — preserve the unconscious state. The
+        # earlier DamageEntity already wired the condition; this branch
+        # defends against a stray double-kill from a system that emits
+        # both DamageEntity and KillEntity in the same batch.
+        return
     if effect.entity == host.player:
         host.ui_mode = UIMode.game_over
         host.character_creation_state = None
         return
+    # A non-player party member has died for real. Check whether the
+    # whole party is now down so we can flip to the game-over screen.
+    if is_pc:
+        # The entity is about to be removed below; do the wipe check
+        # against the post-removal world view by including the
+        # to-be-removed entity in the "down" tally manually.
+        _maybe_trigger_party_wipe_after_kill(host, effect.entity)
     world = host.world
     loot_drop = world.loot_drops.get(effect.entity)
     position = world.positions.get(effect.entity)
@@ -326,6 +405,44 @@ def _living_party_members(host: "App") -> list:
             continue
         living.append(member)
     return living
+
+
+def _check_party_wipe(host: "App") -> None:
+    """Flip to ``UIMode.game_over`` when every party member is down (M29)."""
+    from src.core.death_saves import party_wiped
+
+    party = getattr(host, "party", None)
+    members = getattr(party, "members", None) if party is not None else None
+    if not members:
+        return
+    if party_wiped(host.world, list(members)):
+        host.ui_mode = UIMode.game_over
+        host.character_creation_state = None
+
+
+def _maybe_trigger_party_wipe_after_kill(host: "App", dying: object) -> None:
+    """Anticipating ``dying`` being removed, decide if party is wiped (M29)."""
+    from src.core.death_saves import is_unconscious
+
+    party = getattr(host, "party", None)
+    members = getattr(party, "members", None) if party is not None else None
+    if not members:
+        return
+    world = host.world
+    for member in members:
+        if member == dying:
+            continue
+        if not world.positions.has(member):
+            continue
+        if is_unconscious(world, member):
+            continue
+        stats = world.combat_stats.get(member)
+        if stats is None:
+            return
+        if stats.hit_points > 0:
+            return
+    host.ui_mode = UIMode.game_over
+    host.character_creation_state = None
 
 
 def _spawn_corpse_entity(
@@ -665,14 +782,26 @@ def _apply_apply_healing(host: "App", effect: ApplyHealing) -> None:
     after damage in the same effect batch (because batches dispatch in
     list order), so a spell that heals and immediately resolves a
     counterattack still ends up at the right HP.
+
+    M29: any positive heal applied to an unconscious actor revives
+    them. The unconscious condition is ended and the :class:`DeathSaves`
+    row is cleared so the actor goes back to normal play. The revival
+    effects are dispatched through the standard EffectApplier so
+    save/load and observation stay consistent.
     """
+    from src.core.death_saves import revive_with_healing
 
     stats = host.world.combat_stats.get(effect.entity)
     if stats is None:
         return
     if effect.amount <= 0:
         return
+    was_downed = stats.hit_points <= 0
     stats.hit_points = min(stats.max_hit_points, stats.hit_points + effect.amount)
+    if was_downed and stats.hit_points > 0:
+        followups = revive_with_healing(host.world, effect.entity)
+        if followups:
+            host.effect_applier.apply_all(list(followups))
 
 
 def _apply_consume_spell_slot(host: "App", effect: ConsumeSpellSlot) -> None:
