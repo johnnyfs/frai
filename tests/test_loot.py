@@ -20,11 +20,14 @@ import random
 from src.app import create_app
 from src.core.actions import DropItemAttempt, PickupAttempt
 from src.core.components import (
+    Container,
     Corpse,
     Inventory,
+    Lock,
     LootDrop,
     Position,
     Presentation,
+    Trap,
 )
 from src.core.effects import KillEntity
 from src.core.items import has_item, item_count
@@ -173,6 +176,35 @@ def test_killing_monster_without_loot_still_leaves_corpse() -> None:
     assert inventory.items == []
 
 
+def test_boss_corpse_uses_creature_display_name_not_registry_key() -> None:
+    """Issue #114: boss corpses showed the raw registry key
+    (``boss_kobold_warlord corpse``) instead of the player-visible
+    name (``kobold warlord corpse``). The corpse-spawn path now resolves
+    the creature kind through the registry to surface the friendly
+    name."""
+    from src.core.creatures import creature_for_key
+
+    spec = creature_for_key("boss_kobold_warlord")
+    app = _booted_app()
+    world = app.world
+    enemy = world.create_entity()
+    world.positions.add(enemy, Position(x=6, y=6))
+    from src.core.components import Creature
+
+    world.creatures.add(enemy, Creature(kind=spec.key, attack_verb=spec.attack_verb))
+    # Empty drop is fine — we only care about the corpse's name.
+    world.loot_drops.add(enemy, LootDrop(table=DropTable()))
+
+    app.apply_effects([KillEntity(enemy)])
+
+    corpses = [entity for entity in world.corpses.values]
+    assert len(corpses) == 1
+    name = world.names.require(corpses[0]).value
+    # Friendly name, not the registry key.
+    assert name == f"{spec.name} corpse"
+    assert "boss_kobold_warlord" not in name
+
+
 def test_killing_monster_without_lootdrop_component_skips_corpse() -> None:
     """No LootDrop -> no corpse (matches pre-M30 behavior for plain enemies)."""
     app = _booted_app()
@@ -258,6 +290,101 @@ def test_pickup_with_nothing_on_tile_emits_message() -> None:
 
     assert world.inventories.require(app.player).gold == before_gold
     assert "Nothing to pick up" in app.messages.current
+
+
+def _add_container_at_player(app, *, locked: bool = False, trapped: bool = False, closed: bool = True):
+    world = app.world
+    position = world.positions.require(app.player)
+    entity = world.create_entity()
+    world.positions.add(entity, Position(x=position.x, y=position.y))
+    world.containers.add(entity, Container(is_open=not closed))
+    inventory = Inventory(gold=11)
+    world.inventories.add(entity, inventory)
+    if locked:
+        world.locks.add(entity, Lock(is_locked=True))
+    if trapped:
+        world.traps.add(entity, Trap(is_armed=True))
+    return entity
+
+
+def test_pickup_on_closed_container_refuses_with_hint() -> None:
+    """Issue #65: ``,`` on a closed container must not bypass the open
+    step. The pickup resolver surfaces a refusal so the player knows
+    to use ``e`` first."""
+
+    app = _booted_app()
+    container = _add_container_at_player(app, closed=True)
+    container_inventory = app.world.inventories.require(container)
+    container_gold_before = container_inventory.gold
+    player_gold_before = app.world.inventories.require(app.player).gold
+
+    app.apply_effects(
+        app.dispatcher.dispatch(PickupAttempt(actor=app.player), app.world)
+    )
+
+    # Container still has its gold; the player gained nothing.
+    assert app.world.inventories.require(container).gold == container_gold_before
+    assert app.world.inventories.require(app.player).gold == player_gold_before
+    assert "closed" in app.messages.current.lower() or "open" in app.messages.current.lower()
+
+
+def test_pickup_on_locked_container_refuses_with_hint() -> None:
+    """Issue #65: pickup must not bypass a still-locked container."""
+
+    app = _booted_app()
+    container = _add_container_at_player(app, locked=True, closed=False)
+    container_gold_before = app.world.inventories.require(container).gold
+    player_gold_before = app.world.inventories.require(app.player).gold
+
+    app.apply_effects(
+        app.dispatcher.dispatch(PickupAttempt(actor=app.player), app.world)
+    )
+
+    assert app.world.inventories.require(container).gold == container_gold_before
+    assert app.world.inventories.require(app.player).gold == player_gold_before
+    assert "lock" in app.messages.current.lower() or "open" in app.messages.current.lower()
+
+
+def test_pickup_on_armed_trap_container_refuses_with_hint() -> None:
+    """Issue #65: pickup must not bypass an armed trap on a container."""
+
+    app = _booted_app()
+    container = _add_container_at_player(app, trapped=True, closed=False)
+    container_gold_before = app.world.inventories.require(container).gold
+    player_gold_before = app.world.inventories.require(app.player).gold
+
+    app.apply_effects(
+        app.dispatcher.dispatch(PickupAttempt(actor=app.player), app.world)
+    )
+
+    assert app.world.inventories.require(container).gold == container_gold_before
+    assert app.world.inventories.require(app.player).gold == player_gold_before
+    assert (
+        "trap" in app.messages.current.lower()
+        or "rigged" in app.messages.current.lower()
+        or "disarm" in app.messages.current.lower()
+    )
+
+
+def test_pickup_on_open_safe_container_transfers_contents() -> None:
+    """Behavior preservation: opened, unlocked, untrapped container is
+    still pickable via ``,``."""
+
+    app = _booted_app()
+    container = _add_container_at_player(app, closed=False)
+    container_gold_before = app.world.inventories.require(container).gold
+    player_gold_before = app.world.inventories.require(app.player).gold
+
+    app.apply_effects(
+        app.dispatcher.dispatch(PickupAttempt(actor=app.player), app.world)
+    )
+
+    # Gold moved to the player.
+    assert (
+        app.world.inventories.require(app.player).gold
+        == player_gold_before + container_gold_before
+    )
+    assert app.world.inventories.require(container).gold == 0
 
 
 # ---------------------------------------------------------------------------

@@ -404,6 +404,10 @@ def _populate_town(world: World, town: LocationSpec) -> None:
             "Come find me when you change your mind. The chalice "
             "won't wait forever."
         ),
+        completion_response=(
+            "You did it -- the warlord dead, the chalice returned. "
+            "The old chapel owes you a debt, and so do I."
+        ),
     )
 
 
@@ -621,6 +625,7 @@ def _spawn_quest_giver(
     pitch: str,
     accept_response: str,
     decline_response: str,
+    completion_response: str | None = None,
 ) -> EntityId:
     """Spawn a tavern quest-giver NPC (M14).
 
@@ -649,6 +654,7 @@ def _spawn_quest_giver(
                 pitch=pitch,
                 accept_response=accept_response,
                 decline_response=decline_response,
+                completion_response=completion_response,
             )
         ),
     )

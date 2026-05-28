@@ -379,6 +379,129 @@ def test_pickup_completes_quest_when_boss_already_dead() -> None:
     assert app.party.quests.state_of(SUNKEN_GATE_QUEST_ID) is QuestState.COMPLETED
 
 
+def test_quest_completion_message_survives_reward_emit() -> None:
+    """Issue #112: the boss-kill completion path emitted twice — the
+    "Quest reward: ..." line replaced the "You return triumphant..."
+    completion message in the pager. The fixed path coalesces both
+    into a single emit so the player sees the completion announcement
+    alongside the reward."""
+
+    app = _make_app_with_player()
+    app.party.quests.set_state(SUNKEN_GATE_QUEST_ID, QuestState.ACCEPTED)
+    # Strip the loot drop so the kill doesn't drop a chalice into the
+    # corpse; we pre-seed it on the player so both criteria are met
+    # synchronously on the kill.
+    boss = _spawn_boss_next_to_player(app)
+    app.world.loot_drops.values.pop(boss, None)
+    if not app.world.inventories.has(app.player):
+        app.world.inventories.add(app.player, Inventory())
+    inventory = app.world.inventories.require(app.player)
+    add_item(inventory, "treasure.golden_chalice")
+
+    app.apply_effects([KillEntity(entity=boss)])
+
+    quest = QUESTS.require(SUNKEN_GATE_QUEST_ID)
+    current = app.messages.current
+    pending = list(app.messages.pending)
+    combined = " ".join([current, *pending])
+    # Both the completion announcement and the reward summary land in
+    # the same message stream rather than overwriting each other.
+    assert quest.completion_message in combined, (
+        f"completion missing from {combined!r}"
+    )
+    assert "Quest reward" in combined, f"reward missing from {combined!r}"
+
+
+def test_quest_giver_reopens_at_accepted_node_after_accept() -> None:
+    """Issue #113: after accepting the quest, talking to the giver
+    again should not replay the pitch. The tree's entry node is
+    re-bound to the accept response so the next ``begin_dialogue`` call
+    lands on the in-flight follow-up."""
+
+    app = _make_app_with_player()
+    _spawn_quest_giver_next_to_player(app)
+    app.facing = (1, 0)
+
+    # First conversation: accept the quest, then close.
+    app.handle_key(ord("e"))
+    assert app.ui_mode is UIMode.dialogue
+    app.handle_key(ord("1"))  # accept
+    # Close the dialogue by selecting the only available option on
+    # the accept response node.
+    app.handle_key(ord("1"))
+    assert app.ui_mode is UIMode.play
+
+    # Re-open dialogue: the entry node should now carry the accept
+    # response, NOT the pitch.
+    app.handle_key(ord("e"))
+    assert app.dialogue is not None
+    line_text = app.dialogue.node().line.text
+    assert "Then go" in line_text  # the test fixture's accept_response
+    pitch_marker = "Kill the warlord"  # part of the fixture's pitch
+    assert pitch_marker not in line_text
+
+
+def test_quest_giver_reopens_at_completed_node_after_completion() -> None:
+    """Issue #113: completing the quest rebinds the giver's tree to
+    the completed follow-up so subsequent visits acknowledge the
+    finished work."""
+
+    app = _make_app_with_player()
+    quest_giver = _spawn_quest_giver_next_to_player(app)
+    app.party.quests.set_state(SUNKEN_GATE_QUEST_ID, QuestState.ACCEPTED)
+    boss = _spawn_boss_next_to_player(app)
+    app.world.loot_drops.values.pop(boss, None)
+    if not app.world.inventories.has(app.player):
+        app.world.inventories.add(app.player, Inventory())
+    inventory = app.world.inventories.require(app.player)
+    add_item(inventory, "treasure.golden_chalice")
+
+    app.apply_effects([KillEntity(entity=boss)])
+    assert app.party.quests.state_of(SUNKEN_GATE_QUEST_ID) is QuestState.COMPLETED
+
+    # The tree's entry node should now be the completed response.
+    tree = app.world.npc_dialogues.require(quest_giver).tree
+    entry_text = tree.nodes[tree.root].line.text
+    assert "warlord" in entry_text.lower() or "done" in entry_text.lower()
+    assert "Will you help" not in entry_text
+
+
+def test_quest_giver_decline_keeps_pitch_as_entry() -> None:
+    """Behavior preservation: declining the quest does NOT rebind the
+    tree, so subsequent visits can still offer the pitch."""
+
+    app = _make_app_with_player()
+    quest_giver = _spawn_quest_giver_next_to_player(app)
+    app.facing = (1, 0)
+    app.handle_key(ord("e"))
+    app.handle_key(ord("2"))  # decline
+    # Close out the decline node.
+    if app.ui_mode is UIMode.dialogue:
+        app.handle_key(ord("1"))
+
+    tree = app.world.npc_dialogues.require(quest_giver).tree
+    entry_text = tree.nodes[tree.root].line.text
+    assert "Will you help" in entry_text or "warlord" in entry_text.lower()
+
+
+def test_quest_offer_tree_round_trips_quest_metadata() -> None:
+    """Save/load preserves the quest-aware fields on the tree."""
+
+    tree = quest_offer_tree(
+        speaker_id="NPC",
+        quest_id=SUNKEN_GATE_QUEST_ID,
+        pitch="pitch",
+        accept_response="accepted",
+        decline_response="declined",
+        completion_response="completed",
+    )
+    payload = tree.to_dict()
+    restored = DialogueTree.from_dict(payload)
+    assert restored.quest_id == SUNKEN_GATE_QUEST_ID
+    assert restored.accepted_node_key == "accepted"
+    assert restored.completed_node_key == "completed"
+
+
 def test_quest_completion_grants_gold_reward_to_each_member() -> None:
     app = _make_app_with_player()
     app.party.quests.set_state(SUNKEN_GATE_QUEST_ID, QuestState.ACCEPTED)

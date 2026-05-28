@@ -30,6 +30,12 @@ up the chalice off the corpse triggers it because the corpse loot
 spawns when the boss dies; if you somehow loot the chalice before the
 boss is dead (e.g. via debug spawn), the quest waits on the kill.
 
+The quest giver's dialogue tracks the quest state: before accepting,
+Captain Tane delivers the pitch. After accepting, returning to him
+surfaces the in-flight reminder ("The Sunken Gate lies east...") so
+the pitch is not repeated. After completing the quest, he greets the
+party with an acknowledgment of the finished work.
+
 ## Quest states
 
 | State          | Meaning                                                                              |

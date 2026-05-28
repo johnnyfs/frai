@@ -18,6 +18,12 @@ interaction. In explore mode they are free, but they still tick the
 world clock by one turn so scheduled effects stay aligned with the
 player's pace.
 
+If the actor's tile carries a container that is still closed, locked,
+or armed with a trap, `,` refuses with a hint to use `e` first instead
+of silently bypassing the lock/disarm check. Open the container with
+`e` (which routes through the lock-pick / trap-disarm sequence) and
+then `,` to claim the contents.
+
 ## Drop tables
 
 Drop tables live alongside the creature catalog
@@ -43,7 +49,8 @@ deterministic drops.
    spawns a corpse entity at the victim's tile with an `Inventory`
    carrying the rolled gold + items.
 3. The corpse is non-blocking, presented as `%`, and named after the
-   creature kind (e.g. `goblin corpse`). It persists even after being
+   creature's player-visible name from the registry (e.g. `goblin
+   corpse`, `kobold warlord corpse`). It persists even after being
    looted so the kill stays visible on the map.
 
 ## Ground items
