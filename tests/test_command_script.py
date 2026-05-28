@@ -302,17 +302,14 @@ def test_run_script_comment_only_script_yields_no_outcomes() -> None:
     assert outcomes == []
 
 
-def test_run_command_help_is_safe_no_op_today() -> None:
-    """``?`` has no key binding in play yet — the runner must still produce an outcome.
-
-    Once M39 adds the help modal this test should be updated to check
-    that ``observation_after.modal.kind == "help"`` but until then we
-    simply assert it didn't crash and we're still in play.
-    """
+def test_run_command_help_opens_help_modal() -> None:
+    """``?`` opens the help modal (M31 + M39)."""
 
     app = _ready_app()
     outcome = run_command(app, HelpCommand())
-    assert outcome.observation_after.mode["ui_mode"] == "play"
+    assert outcome.observation_after.mode["ui_mode"] == "help"
+    assert outcome.observation_after.modal is not None
+    assert outcome.observation_after.modal.kind == "help"
 
 
 def test_run_script_reuses_autowalk_interrupt_for_5h_at_wall() -> None:

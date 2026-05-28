@@ -58,6 +58,7 @@ from src.core.actions import (
     DropItemAttempt,
     EndTurn,
     ExamineRequest,
+    HelpRequest,
     InteractAttempt,
     LevelUpConfirm,
     LevelUpDismiss,
@@ -65,6 +66,7 @@ from src.core.actions import (
     PickupAttempt,
     RestMenuChoice,
     RestMenuRequest,
+    RosterRequest,
     SpellMenuChoice,
     SpellMenuRequest,
     ToggleTurnMode,
@@ -120,6 +122,12 @@ from src.systems.start_system import StartSystem, yolo_sheet
 from src.systems.stealth_system import StealthSystem
 from src.systems.vision_system import VisionSystem
 from src.systems.zone_system import tick_zone_transitions
+from src.ui.character_sheet import (
+    CharacterSheetState,
+    build_view as build_character_sheet_view,
+)
+from src.ui.help import HelpState
+from src.ui.roster import RosterState, build_roster
 from src.ui.screen import Screen
 
 
@@ -171,6 +179,15 @@ class App:
     # the shop screen so the M17 shop UI knows which shopkeeper the
     # player is dealing with. Transient -- cleared on shop close.
     shop_partner: EntityId | None = None
+    # Online help modal state. Transient; intentionally absent from the
+    # save aggregate so a save written mid-help drops the modal — the
+    # player lands back at the play screen on load.
+    help_state: HelpState | None = None
+    # Roster modal state. Transient (see ``help_state`` rationale).
+    roster_state: RosterState | None = None
+    # Character-sheet modal state. Stacks over the roster: opening it
+    # records the roster as the previous mode so Esc returns to it.
+    character_sheet_state: CharacterSheetState | None = None
     loot_rng: random.Random = field(default_factory=random.Random)
     effect_applier: EffectApplier = field(init=False)
 
@@ -475,6 +492,24 @@ class App:
         if self.ui_mode is UIMode.shop:
             self._handle_shop_key(key)
             return
+        # M31 / M39 help modal owns its keys: arrow / j / k to move
+        # the topic cursor, Enter to drill in, Esc / q to back out.
+        if self.ui_mode is UIMode.help and self.help_state is not None:
+            self._handle_help_key(key)
+            return
+        # Roster + character sheet own their keys. Stacking is
+        # explicit: opening the sheet records the roster mode as
+        # ``previous_mode`` so an Esc on the sheet returns the
+        # player to the roster rather than collapsing both modals.
+        if (
+            self.ui_mode is UIMode.character_sheet
+            and self.character_sheet_state is not None
+        ):
+            self._handle_character_sheet_key(key)
+            return
+        if self.ui_mode is UIMode.roster and self.roster_state is not None:
+            self._handle_roster_key(key)
+            return
         self.sync_play_mode()
         # Autowalk (M22): a capital direction key initiates a repeated
         # move in that direction. The detection happens before
@@ -552,6 +587,12 @@ class App:
             if not opened_modal and not is_turn_based_play(self.turn.play_mode):
                 self._tick_world_clock(SECONDS_PER_TURN)
             self.sync_play_mode()
+            return
+        if isinstance(action, HelpRequest) and self.ui_mode is UIMode.play:
+            self._open_help()
+            return
+        if isinstance(action, RosterRequest) and self.ui_mode is UIMode.play:
+            self._open_roster()
             return
         if isinstance(action, ExamineRequest) and self.ui_mode is UIMode.play:
             # M21: open the targeting modal in look-only mode. No
@@ -1055,6 +1096,165 @@ class App:
         # Another member may also be pending; reopen the modal so the
         # player works through them sequentially.
         self.maybe_open_level_up_modal()
+
+    # ------------------------------------------------------------------
+    # Help modal (M31 + M39)
+    # ------------------------------------------------------------------
+
+    def _open_help(self) -> None:
+        """Flip to :class:`UIMode.help`, building a fresh :class:`HelpState`.
+
+        Records the previous mode so Esc / q on the index returns the
+        player to whichever screen invoked help. Opening from play is
+        the common path; opening from a modal screen is reserved for
+        the future "help while modal is up" entry.
+        """
+
+        self.help_state = HelpState(previous_mode=self.ui_mode.value)
+        self.ui_mode = UIMode.help
+
+    def _close_help(self) -> None:
+        previous = (
+            self.help_state.previous_mode if self.help_state is not None else None
+        )
+        self.help_state = None
+        try:
+            restored = UIMode(previous) if previous is not None else UIMode.play
+        except ValueError:
+            restored = UIMode.play
+        self.ui_mode = restored
+
+    def _handle_help_key(self, key: int) -> None:
+        state = self.help_state
+        if state is None:
+            self.ui_mode = UIMode.play
+            return
+        try:
+            key_char = chr(key).lower() if 0 <= key <= 255 else ""
+        except ValueError:
+            key_char = ""
+
+        # Esc / q backs out of a viewed topic, otherwise closes.
+        if key == 27 or key_char == "q":
+            if not state.back_to_index():
+                self._close_help()
+            return
+
+        # Enter / space selects the cursor topic (or scrolls one page
+        # when already viewing).
+        if key in (curses.KEY_ENTER, 10, 13) or key_char == " ":
+            if state.viewing is None:
+                state.select_current()
+            else:
+                state.scroll_by(10)
+            return
+
+        if state.viewing is None:
+            # Index navigation.
+            if key_char in ("j",) or key == curses.KEY_DOWN:
+                state.move_cursor(1)
+                return
+            if key_char in ("k",) or key == curses.KEY_UP:
+                state.move_cursor(-1)
+                return
+            return
+
+        # Body scroll while viewing.
+        if key_char == "j" or key == curses.KEY_DOWN:
+            state.scroll_by(1)
+            return
+        if key_char == "k" or key == curses.KEY_UP:
+            state.scroll_by(-1)
+            return
+
+    # ------------------------------------------------------------------
+    # Roster + character sheet modals
+    # ------------------------------------------------------------------
+
+    def _open_roster(self) -> None:
+        entries = build_roster(self.world, self.party.members)
+        self.roster_state = RosterState(
+            entries=entries, previous_mode=self.ui_mode.value
+        )
+        self.ui_mode = UIMode.roster
+
+    def _close_roster(self) -> None:
+        previous = (
+            self.roster_state.previous_mode if self.roster_state is not None else None
+        )
+        self.roster_state = None
+        try:
+            restored = UIMode(previous) if previous is not None else UIMode.play
+        except ValueError:
+            restored = UIMode.play
+        self.ui_mode = restored
+
+    def _handle_roster_key(self, key: int) -> None:
+        state = self.roster_state
+        if state is None:
+            self.ui_mode = UIMode.play
+            return
+        try:
+            key_char = chr(key).lower() if 0 <= key <= 255 else ""
+        except ValueError:
+            key_char = ""
+
+        if key == 27 or key_char == "q":
+            self._close_roster()
+            return
+        if key_char == "j" or key == curses.KEY_DOWN:
+            state.move_cursor(1)
+            return
+        if key_char == "k" or key == curses.KEY_UP:
+            state.move_cursor(-1)
+            return
+        if key in (curses.KEY_ENTER, 10, 13) or key_char == " ":
+            self._open_character_sheet_from_roster()
+            return
+
+    def _open_character_sheet_from_roster(self) -> None:
+        state = self.roster_state
+        if state is None:
+            return
+        entry = state.selected()
+        if entry is None:
+            return
+        view = build_character_sheet_view(self.world, entry.entity)
+        if view is None:
+            self.messages.emit("No sheet available.")
+            return
+        self.character_sheet_state = CharacterSheetState(
+            view=view, previous_mode=UIMode.roster.value
+        )
+        self.ui_mode = UIMode.character_sheet
+
+    def _close_character_sheet(self) -> None:
+        state = self.character_sheet_state
+        previous = state.previous_mode if state is not None else None
+        self.character_sheet_state = None
+        try:
+            restored = UIMode(previous) if previous is not None else UIMode.play
+        except ValueError:
+            restored = UIMode.play
+        # Restoring to the roster requires the roster state to still
+        # exist; rebuild it if it was dropped (e.g. mid-save reload).
+        if restored is UIMode.roster and self.roster_state is None:
+            entries = build_roster(self.world, self.party.members)
+            self.roster_state = RosterState(
+                entries=entries, previous_mode=UIMode.play.value
+            )
+        self.ui_mode = restored
+
+    def _handle_character_sheet_key(self, key: int) -> None:
+        try:
+            key_char = chr(key).lower() if 0 <= key <= 255 else ""
+        except ValueError:
+            key_char = ""
+        if key == 27 or key_char == "q":
+            self._close_character_sheet()
+            return
+        # Enter currently has no effect on the sheet (no nested drill);
+        # reserved so a future "inspect inventory item" flow has a key.
 
     def sync_play_mode(self) -> None:
         """Recompute PlayMode from world state.
@@ -1970,6 +2170,9 @@ def _run_curses(stdscr: curses.window) -> None:
             targeting_origin=targeting.origin if targeting is not None else None,
             targeting_range=targeting.range if targeting is not None else 0,
             dialogue=app.dialogue,
+            help_state=app.help_state,
+            roster_state=app.roster_state,
+            character_sheet_state=app.character_sheet_state,
         )
         key = stdscr.getch()
         if key == curses.KEY_RESIZE:

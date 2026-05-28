@@ -10,6 +10,7 @@ from src.core.actions import (
     EndTurn,
     ExamineRequest,
     GameOverChoice,
+    HelpRequest,
     InteractAttempt,
     InventoryRequest,
     LevelUpConfirm,
@@ -21,6 +22,7 @@ from src.core.actions import (
     QuitRequest,
     RestMenuChoice,
     RestMenuRequest,
+    RosterRequest,
     SneakAttempt,
     SpellMenuChoice,
     SpellMenuRequest,
@@ -112,6 +114,19 @@ def map_key(
         return None
 
     if ui_mode is UIMode.play:
+        # Case-sensitive checks before the lowercase fallback. Capital
+        # ``P`` opens the roster; lowercase ``p`` is the perception
+        # sweep (M23). ``?`` has no case but is dispatched here so the
+        # help modal can open from play.
+        if 0 <= key <= 255:
+            try:
+                raw = chr(key)
+            except ValueError:
+                raw = ""
+            if raw == "P":
+                return RosterRequest(actor=player)
+            if raw == "?":
+                return HelpRequest()
         if key_name == " ":
             return EndTurn()
         if key_name == "t":

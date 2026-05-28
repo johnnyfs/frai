@@ -238,7 +238,14 @@ def load_game(path: Path | None = None) -> "App":
 # ``GameState``. Listed once so the load-time repair and any future
 # audit can share the same source of truth.
 _TRANSIENT_MODAL_MODES: frozenset[UIMode] = frozenset(
-    {UIMode.targeting, UIMode.dialogue, UIMode.shop}
+    {
+        UIMode.targeting,
+        UIMode.dialogue,
+        UIMode.shop,
+        UIMode.help,
+        UIMode.roster,
+        UIMode.character_sheet,
+    }
 )
 
 
@@ -260,6 +267,15 @@ def _repair_stale_modal(app: "App") -> None:
     if app.ui_mode is UIMode.dialogue and app.dialogue is not None:
         return
     if app.ui_mode is UIMode.shop and app.shop_partner is not None:
+        return
+    if app.ui_mode is UIMode.help and app.help_state is not None:
+        return
+    if app.ui_mode is UIMode.roster and app.roster_state is not None:
+        return
+    if (
+        app.ui_mode is UIMode.character_sheet
+        and app.character_sheet_state is not None
+    ):
         return
     app.ui_mode = UIMode.play
 

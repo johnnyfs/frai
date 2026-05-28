@@ -915,6 +915,12 @@ def _available_actions(
         # M25: level-up modal accepts confirm or dismiss only; the
         # play-screen action set is hidden while the modal is up.
         return ["level_up.confirm", "level_up.dismiss"]
+    if ui_mode is UIMode.help:
+        return ["help.select", "help.view", "help.back", "help.close"]
+    if ui_mode is UIMode.roster:
+        return ["roster.select", "roster.view_sheet", "roster.close"]
+    if ui_mode is UIMode.character_sheet:
+        return ["character_sheet.close"]
     if ui_mode is not UIMode.play or active is None:
         return []
 
@@ -926,6 +932,8 @@ def _available_actions(
         "sneak",
         "perceive",
         "rest",
+        "help",
+        "roster",
         "quit",
     ]
     # The cast action is only meaningful when the active actor has a
@@ -1089,6 +1097,47 @@ def _modal_snapshot(app: Any) -> ModalSnapshot | None:
                 options.append(f"level={pending.target_level}")
                 break
         return ModalSnapshot(kind="level_up", options=options)
+    if ui_mode is UIMode.help:
+        # M31 + M39: surface the topic list + the cursor position so an
+        # agentic playtester can scroll to a topic and Enter into it.
+        help_state = getattr(app, "help_state", None)
+        options: list[str] = []
+        cursor: int | None = None
+        if help_state is not None:
+            cursor = help_state.cursor
+            for topic in help_state.topics:
+                options.append(topic.topic_id)
+            if help_state.viewing is not None:
+                options.append(f"viewing={help_state.viewing.topic_id}")
+                options.append(f"scroll={help_state.scroll}")
+        return ModalSnapshot(kind="help", options=options, cursor=cursor)
+    if ui_mode is UIMode.roster:
+        # Surface the party roster so a /playtest agent can drive the
+        # cursor and Enter into a sheet. ``options`` carries one
+        # ``id:name`` token per entry so a single-token select is enough.
+        roster_state = getattr(app, "roster_state", None)
+        options = []
+        cursor = None
+        if roster_state is not None:
+            cursor = roster_state.cursor
+            for entry in roster_state.entries:
+                options.append(
+                    f"{int(entry.entity)}:{entry.name}:"
+                    f"{entry.character_class}:L{entry.level}:"
+                    f"HP{entry.hp}/{entry.max_hp}"
+                )
+        return ModalSnapshot(kind="roster", options=options, cursor=cursor)
+    if ui_mode is UIMode.character_sheet:
+        # Pass through the rendered sheet lines so the harness sees the
+        # same projection the player does, without re-querying world
+        # component stores.
+        sheet_state = getattr(app, "character_sheet_state", None)
+        options = []
+        if sheet_state is not None:
+            from src.ui.character_sheet import render_lines as _render
+
+            options = list(_render(sheet_state.view))
+        return ModalSnapshot(kind="character_sheet", options=options)
     # Future modal kinds (examine, help) just report the kind;
     # option content will be filled in as those land.
     return ModalSnapshot(kind=ui_mode.value, options=[])

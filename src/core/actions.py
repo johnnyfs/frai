@@ -224,6 +224,30 @@ class LevelUpDismiss:
 
 
 @dataclass(frozen=True, slots=True)
+class HelpRequest:
+    """Open the help modal from any non-modal context.
+
+    Pressing ``?`` in :class:`UIMode.play` emits this request. The App
+    builds a fresh :class:`HelpState` and flips to :class:`UIMode.help`.
+    Help is a pure UI modal — no world mutation, no clock advance.
+    """
+
+    pass
+
+
+@dataclass(frozen=True, slots=True)
+class RosterRequest:
+    """Open the party roster modal.
+
+    Pressing capital ``P`` (lowercase ``p`` is the perception sweep)
+    emits this request. The App projects the party into a
+    :class:`RosterState` and flips to :class:`UIMode.roster`.
+    """
+
+    actor: EntityId
+
+
+@dataclass(frozen=True, slots=True)
 class ExamineRequest:
     """Open the M21 examine/look cursor over the world.
 
@@ -268,4 +292,6 @@ Action: TypeAlias = (
     | RestMenuChoice
     | LevelUpConfirm
     | LevelUpDismiss
+    | HelpRequest
+    | RosterRequest
 )

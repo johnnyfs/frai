@@ -3,12 +3,14 @@ from src.core.actions import (
     CloseInventory,
     EndTurn,
     ExamineRequest,
+    HelpRequest,
     InteractAttempt,
     InventoryRequest,
     MoveAttempt,
     PerceptionAttempt,
     QuitConfirm,
     QuitRequest,
+    RosterRequest,
     SneakAttempt,
     StartChoice,
     ToggleTurnMode,
@@ -62,6 +64,18 @@ def test_play_mode_maps_z_to_sneak_attempt() -> None:
 
 def test_play_mode_maps_p_to_perception_attempt() -> None:
     assert map_key(ord("p"), UIMode.play, EntityId(1)) == PerceptionAttempt(
+        actor=EntityId(1)
+    )
+
+
+def test_play_mode_maps_question_mark_to_help_request() -> None:
+    assert map_key(ord("?"), UIMode.play, EntityId(1)) == HelpRequest()
+
+
+def test_play_mode_maps_capital_p_to_roster_request() -> None:
+    """Capital ``P`` opens the roster; lowercase ``p`` is perception."""
+
+    assert map_key(ord("P"), UIMode.play, EntityId(1)) == RosterRequest(
         actor=EntityId(1)
     )
 
