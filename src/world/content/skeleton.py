@@ -6,6 +6,7 @@ from types import MappingProxyType
 
 from src.core.components import Faction, Name, PlayerControlled, Position, Presentation
 from src.core.entity import EntityId
+from src.core.factions import FactionId
 from src.core.world import World
 from src.map.tiles import DUNGEON_FLOOR, FOREST, GRASS, ROAD, TOWN_FLOOR, WATER, Tile
 
@@ -123,7 +124,7 @@ def build_world_skeleton(
     world.presentations.add(player, Presentation("@"))
     world.player_controlled.add(player, PlayerControlled())
     world.names.add(player, Name("you"))
-    world.factions.add(player, Faction("player"))
+    world.factions.add(player, Faction(FactionId.PLAYER_PARTY.value))
 
     return BuiltWorldSkeleton(
         world=world,

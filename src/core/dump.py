@@ -76,6 +76,7 @@ def _iter_component_stores(world: World):
         "loot_drops",
         "god_modes",
         "conditions",
+        "aggro_overrides",
     ):
         store = getattr(world, name, None)
         if store is not None:

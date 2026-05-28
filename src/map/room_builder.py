@@ -18,6 +18,7 @@ from src.core.components import (
 )
 from src.core.config import PLAYFIELD_WIDTH
 from src.core.entity import EntityId
+from src.core.factions import FactionId
 from src.core.world import World
 from src.map.tiles import FLOOR, HORIZONTAL_WALL, OUTSIDE, PASSAGE, VERTICAL_WALL, Tile
 
@@ -47,7 +48,7 @@ def build_room_world(width: int, height: int, rng: Random | None = None) -> Buil
     world.presentations.add(player, Presentation("@"))
     world.player_controlled.add(player, PlayerControlled())
     world.names.add(player, Name("you"))
-    world.factions.add(player, Faction("player"))
+    world.factions.add(player, Faction(FactionId.PLAYER_PARTY.value))
 
     center_x = (left + right) // 2
     center_y = (top + bottom) // 2
@@ -148,7 +149,7 @@ def _add_creature(world: World, creature_key: str, x: int, y: int) -> EntityId:
     world.blockers.add(entity, BlocksMovement("occupied"))
     world.names.add(entity, Name(spec.name))
     world.creatures.add(entity, creature_component(spec))
-    world.factions.add(entity, Faction("enemy"))
+    world.factions.add(entity, Faction(FactionId.DUNGEON.value))
     world.combat_stats.add(entity, combat_stats_for_creature(spec))
     world.weapons.add(entity, weapon_for_creature(spec))
     if spec.loot.entries:

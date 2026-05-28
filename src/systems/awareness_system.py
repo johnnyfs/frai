@@ -1,28 +1,46 @@
 """Awareness queries: who knows about whom, and who is hostile.
 
-This is a pure-function query service over ``World`` state. It is the seam
-that future milestones extend:
+This is a pure-function query service over ``World`` state. It is the
+seam that future milestones extend:
 
-- M19 (vision / LOS) will narrow ``is_aware_of`` to actually-visible targets.
-- M23 (stealth / perception) will add perception checks on top of LOS.
-- M28 (faction relations) will replace the party-vs-rest hostility rule with
-  a richer faction model (allies, neutrals, town guards, summons).
+- M19 (vision / LOS) narrowed ``is_aware_of`` to actually-visible
+  targets via the party memory frontier (deferred from this module).
+- M23 (stealth / perception) will add perception checks on top of LOS;
+  hooking in here keeps the rule centralized.
+- M28 (this milestone) replaced the party-vs-rest hostility rule with
+  a proper faction relation table plus per-entity aggro overrides
+  (see ``src/core/factions.py``).
 
-For now the rules match the legacy ``App._hostiles_in_sight`` behavior
-exactly:
+The hostility predicate now reads:
 
-- A target is "hostile" if it has a faction different from the observer's
-  faction *and* has combat stats (the same predicate the movement and
-  turn systems already use for "should bumping into this start combat?").
-- An observer is "aware of" any target that is alive and positioned. There
-  is no LOS or distance constraint yet; today the engine treats the whole
-  world as effectively in sight, mirroring the prior implementation.
-- ``hostiles_requiring_battle`` answers "should the game be in turn-based
-  combat mode right now?". It collects every alive, positioned, combat-
-  statted entity whose faction is not in the party's faction set.
+1. If observer == target, not hostile.
+2. If the target has no combat stats, not hostile (doors, signs).
+3. Resolve each side's effective ``FactionId``, walking the
+   ``Faction.summoner`` chain so a summon inherits its caster's
+   faction.
+4. Consult any ``AggroOverride`` on the observer first — overrides
+   take precedence over the global table so "shopkeeper turned
+   hostile" works without flipping the whole town.
+5. Otherwise consult the global ``RelationTable``:
+   - Known × known: table lookup.
+   - At least one ``UNKNOWN``: fall back to the legacy "different
+     string == hostile" rule. This keeps pre-M28 fixtures and saves
+     using ad-hoc faction strings working unchanged.
+
+``hostiles_requiring_battle`` is the entry point used by the App turn
+controller to decide "are we in turn-based mode right now?". It scans
+every alive, positioned, combat-statted entity and asks the same
+predicate from the party's perspective.
 """
 
+from src.core.components import Faction
 from src.core.entity import EntityId
+from src.core.factions import (
+    DEFAULT_RELATION_TABLE,
+    FactionId,
+    Relation,
+    RelationTable,
+)
 from src.core.world import World
 
 
@@ -38,11 +56,9 @@ def is_aware_of(world: World, observer: EntityId, target: EntityId) -> bool:
     """True if ``observer`` should be considered to know about ``target``.
 
     Today: any alive, positioned entity is "in sight" of any observer.
-    This is intentionally permissive — it matches the pre-refactor behavior
-    where the engine scans the entire world for hostiles. M19 will narrow
-    this to actually-visible targets, and M23 will layer perception on top.
-    The ``observer`` parameter is accepted now so callers and tests already
-    pass it in; future LOS work will use the observer's position/facing.
+    M19 narrowed the party's view through the memory frontier; this
+    predicate stays permissive because non-party actors (AI) still scan
+    the whole world. M23 will gate this on perception checks.
     """
     if observer == target:
         return False
@@ -51,42 +67,157 @@ def is_aware_of(world: World, observer: EntityId, target: EntityId) -> bool:
     return is_alive(world, target)
 
 
-def is_hostile_to(world: World, observer: EntityId, target: EntityId) -> bool:
+def _effective_faction(world: World, entity: EntityId) -> Faction | None:
+    """Walk the summoner chain to find the entity's effective faction.
+
+    A summoned creature with ``Faction(summoner=caster)`` inherits the
+    relation graph of its caster — including any ``AggroOverride``s on
+    the caster — so a player-summoned elemental is never accidentally
+    treated as hostile to the rest of the party. Cycles are guarded by
+    a visited set; the chain bottoms out at the first ``Faction``
+    without a ``summoner``.
+    """
+    visited: set[EntityId] = set()
+    current = entity
+    while True:
+        if current in visited:
+            return None
+        visited.add(current)
+        faction = world.factions.get(current)
+        if faction is None:
+            return None
+        if faction.summoner is None:
+            return faction
+        owner = faction.summoner
+        if not world.factions.has(owner):
+            # Owner is gone (dismissed companion, dead summoner) — fall
+            # back to the summon's own declared faction so the engine
+            # still has a definite answer.
+            return faction
+        current = owner
+
+
+def _effective_faction_id(world: World, entity: EntityId) -> FactionId:
+    faction = _effective_faction(world, entity)
+    if faction is None:
+        return FactionId.UNKNOWN
+    return FactionId.from_value(faction.value)
+
+
+def _override_for(
+    world: World, observer: EntityId, target_id: FactionId
+) -> Relation | None:
+    """Walk the observer's summoner chain looking for a matching override.
+
+    Overrides apply to the entity that owns them *and* to anyone who
+    inherits faction through it — that's what lets a player-summoned
+    elemental treat a town that the player has aggro'd as hostile.
+    Cycles are guarded the same way :func:`_effective_faction` does.
+    """
+    visited: set[EntityId] = set()
+    current = observer
+    while True:
+        if current in visited:
+            return None
+        visited.add(current)
+        overrides = world.aggro_overrides.get(current)
+        if overrides is not None:
+            relation = overrides.relation_to(target_id)
+            if relation is not None:
+                return relation
+        faction = world.factions.get(current)
+        if faction is None or faction.summoner is None:
+            return None
+        current = faction.summoner
+
+
+def _resolve_relation(
+    world: World,
+    observer: EntityId,
+    target: EntityId,
+    table: RelationTable,
+) -> Relation:
+    """Resolve the relation the *observer* sees toward the *target*.
+
+    Aggro overrides on the observer (and any summoner upstream of it)
+    are consulted first. Then the global table. If either side is
+    ``UNKNOWN``, fall back to the legacy "different raw string ==
+    hostile" rule so pre-M28 fixtures keep working — this is the
+    smallest change that lets ad-hoc faction strings coexist with the
+    typed catalog.
+    """
+    observer_faction = _effective_faction(world, observer)
+    target_faction = _effective_faction(world, target)
+    if observer_faction is None or target_faction is None:
+        return Relation.NEUTRAL
+    target_id = FactionId.from_value(target_faction.value)
+    override = _override_for(world, observer, target_id)
+    if override is not None:
+        return override
+    observer_id = FactionId.from_value(observer_faction.value)
+    if observer_id is FactionId.UNKNOWN or target_id is FactionId.UNKNOWN:
+        # Legacy fallback: different raw faction strings are hostile,
+        # same string is friendly. Matches pre-M28 semantics.
+        if observer_faction.value == target_faction.value:
+            return Relation.FRIENDLY
+        return Relation.HOSTILE
+    return table.relation(observer_id, target_id)
+
+
+def is_hostile_to(
+    world: World,
+    observer: EntityId,
+    target: EntityId,
+    *,
+    table: RelationTable = DEFAULT_RELATION_TABLE,
+) -> bool:
     """True if ``observer`` treats ``target`` as an enemy.
 
-    Mirrors the existing rule used by movement bumps and AI: different
-    factions, and target has combat stats. Either party lacking a faction
-    means "not hostile" (e.g. inert scenery, doors). Self is never hostile.
+    The predicate gates on combat stats so non-combatant entities
+    (doors, signs, dropped items) never trigger combat even if they
+    somehow ended up with a hostile faction. Self is never hostile.
+
+    The optional ``table`` parameter is provided so tests can plug in a
+    custom relation table without monkeypatching the module default.
     """
     if observer == target:
         return False
-    observer_faction = world.factions.get(observer)
-    target_faction = world.factions.get(target)
-    if observer_faction is None or target_faction is None:
+    if not world.combat_stats.has(target):
         return False
-    if observer_faction.value == target_faction.value:
-        return False
-    return world.combat_stats.has(target)
+    return _resolve_relation(world, observer, target, table) is Relation.HOSTILE
 
 
-def hostiles_requiring_battle(world: World, party: list[EntityId]) -> list[EntityId]:
+def hostiles_requiring_battle(
+    world: World,
+    party: list[EntityId],
+    *,
+    table: RelationTable = DEFAULT_RELATION_TABLE,
+) -> list[EntityId]:
     """Return every alive, positioned, combat-statted entity hostile to the party.
 
-    Matches the legacy ``_hostiles_in_sight`` semantics: a non-party faction
-    with combat stats and positive HP. Returns a list (callers that only
-    need a boolean can truthiness-check it). Order follows the world's
-    ``combat_stats`` iteration order so results are deterministic per world.
+    "Hostile to the party" means *any* party member treats the entity
+    as hostile — that's the rule that decides whether the app enters
+    turn-based mode. A neutral town NPC therefore stays neutral until
+    something flips them with an ``AggroOverride``; a dungeon monster
+    triggers combat immediately. Order follows the world's
+    ``combat_stats`` iteration order so results are deterministic per
+    world.
     """
-    party_factions = {
-        faction.value
-        for entity in party
-        if (faction := world.factions.get(entity)) is not None
-    }
     hostiles: list[EntityId] = []
     for entity, stats in world.combat_stats.values.items():
         if stats.hit_points <= 0 or not world.positions.has(entity):
             continue
-        faction = world.factions.get(entity)
-        if faction is not None and faction.value not in party_factions:
-            hostiles.append(entity)
+        if entity in party:
+            continue
+        for member in party:
+            if is_hostile_to(world, member, entity, table=table):
+                hostiles.append(entity)
+                break
+            # Also consider whether the candidate is hostile *toward*
+            # any party member — an aggro'd shopkeeper sees the party
+            # as hostile (via AggroOverride) even though the party's
+            # base relation to the shopkeeper (town) is neutral.
+            if is_hostile_to(world, entity, member, table=table):
+                hostiles.append(entity)
+                break
     return hostiles
