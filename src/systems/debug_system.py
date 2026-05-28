@@ -23,10 +23,10 @@ place.
 
 Stubs
 -----
-Some commands (`reveal`, `grant xp`, `quest`) depend on milestones that
-have not landed yet (M19 vision/memory, M25 leveling, quest content).
-Those return an `EmitMessage` placeholder so the surface is stable now and
-the wiring is one line when the dependency lands.
+Some commands (`reveal`, `quest`) depend on milestones that have not
+landed yet (M19 vision/memory, quest content). Those return an
+`EmitMessage` placeholder so the surface is stable now and the wiring
+is one line when the dependency lands.
 
 Hosting
 -------
@@ -62,6 +62,7 @@ from src.core.effects import (
     EmitMessage,
     GrantGold,
     GrantItem,
+    GrantXP,
     MoveEntity,
     SetGodMode,
     SpawnEntity,
@@ -259,15 +260,21 @@ def _cmd_grant(host: Any, args: list[str]) -> list[Effect]:
         raise DebugCommandError("Usage: grant <xp|gold|item> <value>")
     sub, *rest = args
     if sub == "xp":
-        # M25 (leveling/XP) is not in yet — emit a placeholder so the
-        # command surface is stable. When XP lands, emit a `GrantXP` effect.
+        # Grant XP to every party member (M25). We mirror quest-reward
+        # semantics here rather than the kill-XP split: a debug grant
+        # should be predictable and useful for testing leveling on the
+        # whole party, not divided by member count. Falls back to the
+        # active player when no party is attached (e.g. tiny test hosts).
         if len(rest) != 1:
             raise DebugCommandError("Usage: grant xp <n>")
         try:
             amount = int(rest[0])
         except ValueError as exc:
             raise DebugCommandError(f"grant xp: invalid amount ({exc})") from exc
-        return [EmitMessage(f"grant xp {amount}: leveling not implemented (M25).")]
+        recipients = _xp_recipients(host)
+        effects: list[Effect] = [GrantXP(entity, amount) for entity in recipients]
+        effects.append(EmitMessage(f"Granted {amount} XP to {len(recipients)} PC(s)."))
+        return effects
     if sub == "gold":
         if len(rest) != 1:
             raise DebugCommandError("Usage: grant gold <n>")
@@ -344,6 +351,21 @@ def debug_command_names() -> list[str]:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _xp_recipients(host: Any) -> list[EntityId]:
+    """Return the list of PCs that should receive a debug XP grant.
+
+    Prefers ``host.party.members`` (the full PC roster) when available
+    so a debug `grant xp` keeps every member in sync. Falls back to
+    ``[host.player]`` when no party is attached — that path keeps the
+    tiny-host tests working without forcing them to build a PartyState.
+    """
+    party = getattr(host, "party", None)
+    members = getattr(party, "members", None) if party is not None else None
+    if members:
+        return list(members)
+    return [host.player]
 
 
 def _adjacent_free_tile(world: World, origin_x: int, origin_y: int) -> tuple[int, int]:

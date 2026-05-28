@@ -22,7 +22,7 @@ the same invariants as gameplay actions (no direct world mutation).
 | `spawn <kind> [<x> <y>]`     | Spawns a catalog entity at `(x, y)` or adjacent to the player.      | Kinds: `kobold`, `goblin`, `chest`, `gold_pile`. |
 | `grant gold <n>`             | Adds `n` gold to the player's inventory.                            | |
 | `grant item <id> [<qty>]`    | Adds `qty` of the named item to the player's inventory.             | `id` must exist in `src.core.items.ITEMS`. |
-| `grant xp <n>`               | Stub until M25 (leveling).                                          | Emits a placeholder message. |
+| `grant xp <n>`               | Grants `n` XP to every party member.                                | Emits a `GrantXP` per PC. Crossing a level threshold attaches `LevelUpAvailable`; the player consumes it through the standard level-up modal. Unlike the kill/quest split, the debug grant is not divided across members. |
 | `god on` / `god off`         | Adds/removes a `GodMode` component on the player.                   | While enabled, the player ignores all `DamageEntity` effects (combat, traps, future sources). |
 | `quest <milestone>`          | Stub until M14 (quest content).                                     | Emits a placeholder message. |
 | `dump [<path>]`              | Writes a JSON snapshot of the world to `path` (default `world_state.json`). | Best-effort snapshot, not a save format. |
