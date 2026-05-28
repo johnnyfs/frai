@@ -133,13 +133,16 @@ class GameState:
     # Serialization (M16 precondition)
     # ------------------------------------------------------------------
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self, *, include_world: bool = True) -> dict[str, Any]:
         """Return a JSON-safe representation.
 
-        The world is NOT yet serialized at this milestone (M16 will add
-        ``World.to_dict``). Everything else with a defined dict shape
-        is included so the aggregate already round-trips its non-world
-        fields. ``play_mode`` is sourced from the turn controller.
+        With ``include_world=True`` (the default at and after M16) the
+        full ECS world serialization is folded in under the ``"world"``
+        key. The legacy partial shape used by M49 tests is preserved by
+        passing ``include_world=False`` — useful for observation
+        snapshots and any caller that only wants the aggregate fields.
+        ``play_mode`` is sourced from the turn controller in either
+        mode.
         """
 
         payload: dict[str, Any] = {
@@ -157,6 +160,8 @@ class GameState:
                 self.character_creation_state
             ),
         }
+        if include_world:
+            payload["world"] = self.world.to_dict()
         return payload
 
     @classmethod
@@ -258,31 +263,74 @@ def _messages_from_dict(payload: dict[str, Any] | None) -> MessageState:
 
 
 def _memory_to_dict(memory: PartyMemory) -> dict[str, Any]:
-    """Serialize PartyMemory.
+    """Serialize PartyMemory (M16).
 
-    The remembered tile snapshots themselves (glyph + features) aren't
-    included yet — M16 will extend this once it lands a stable
-    ``RememberedFeature`` serializer. We surface just enough today
-    (visible cells + the keys of the remembered map) for save tooling
-    to be aware of which tiles the party has ever seen.
+    The remembered tile snapshots (glyph + static feature list) are
+    fully captured: each ``(x, y) -> RememberedTile`` entry becomes a
+    ``[x, y, {glyph, features}]`` triple. Visible cells are the M19
+    party-vision set and round-trip as a plain list of coordinates.
+
+    Older saves that only carried a ``seen`` list of coordinates still
+    load via :func:`_memory_from_dict` — the snapshot reconstructs as a
+    placeholder ``RememberedTile`` with an empty glyph.
     """
     return {
         "visible": [list(cell) for cell in sorted(memory.visible)],
-        "seen": [list(cell) for cell in sorted(memory.tiles.keys())],
+        "tiles": [
+            [
+                cell[0],
+                cell[1],
+                {
+                    "glyph": tile.glyph,
+                    "features": [
+                        {
+                            "kind": feature.kind,
+                            "glyph": feature.glyph,
+                            "is_open": feature.is_open,
+                        }
+                        for feature in tile.features
+                    ],
+                },
+            ]
+            for cell, tile in sorted(memory.tiles.items())
+        ],
     }
 
 
 def _memory_from_dict(payload: dict[str, Any] | None) -> PartyMemory:
+    from src.core.vision import RememberedFeature, RememberedTile
+
     memory = PartyMemory()
     if payload is None:
         return memory
     visible_raw = payload.get("visible", [])
     memory.set_visible({(int(cell[0]), int(cell[1])) for cell in visible_raw})
-    # ``seen`` cells round-trip as empty RememberedTile placeholders.
-    # M16 will replace these with real snapshots once World gets a
-    # serializer.
-    from src.core.vision import RememberedTile
 
+    # M16 shape: tiles is a list of [x, y, {glyph, features}] triples.
+    tiles_raw = payload.get("tiles")
+    if tiles_raw is not None:
+        for cell in tiles_raw:
+            x, y, snapshot = int(cell[0]), int(cell[1]), cell[2]
+            features = tuple(
+                RememberedFeature(
+                    kind=str(item.get("kind", "")),
+                    glyph=str(item.get("glyph", " ")),
+                    is_open=bool(item.get("is_open", False)),
+                )
+                for item in snapshot.get("features", [])
+            )
+            memory.remember(
+                x, y,
+                RememberedTile(
+                    glyph=str(snapshot.get("glyph", " ")),
+                    features=features,
+                ),
+            )
+        return memory
+
+    # Back-compat: pre-M16 saves only carried a ``seen`` coordinate list
+    # with no per-tile snapshot. Rebuild as placeholders so the renderer
+    # still treats those cells as remembered.
     for cell in payload.get("seen", []):
         memory.remember(int(cell[0]), int(cell[1]), RememberedTile(glyph=" "))
     return memory
