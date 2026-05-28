@@ -241,13 +241,23 @@ def observe(app: Any) -> Observation:
     Pure: this function does not mutate `app`, `app.world`, or any
     component store. Calling `observe()` twice in a row with no
     intervening input must produce equal observations.
+
+    Reads from `app.game_state` when available (M49 container); falls
+    back to the legacy flat attributes on `app` so harness fixtures
+    that construct mock apps without a GameState still work.
     """
 
-    world = app.world
-    ui_mode: UIMode = app.ui_mode
-    play_mode_value: str | None = (
-        app.play_mode.value if ui_mode is UIMode.play else None
-    )
+    game_state = getattr(app, "game_state", None)
+    if game_state is not None:
+        world = game_state.world
+        ui_mode = game_state.ui_mode
+        play_mode_value = (
+            game_state.play_mode.value if ui_mode is UIMode.play else None
+        )
+    else:
+        world = app.world
+        ui_mode = app.ui_mode
+        play_mode_value = app.play_mode.value if ui_mode is UIMode.play else None
 
     active_entity = _safe_active_actor(app)
     active_actor = _build_actor_summary(app, active_entity) if active_entity is not None else None

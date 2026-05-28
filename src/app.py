@@ -17,6 +17,7 @@ from src.core.components import (
     Presentation,
 )
 from src.core.character_creation import CharacterCreationState, CharacterSheet
+from src.core.game_state import GameState
 from src.core.items import add_item, armor_item_id_for_name, weapon_item_id_for_name
 from src.core.effects import (
     Effect,
@@ -59,32 +60,28 @@ from src.ui.screen import Screen
 
 @dataclass(slots=True)
 class App:
-    world: World
+    """Runtime entry point. Owns the GameState aggregate plus the
+    transient curses-loop scaffolding (dispatcher, effect applier,
+    vision system, the ``running`` loop flag, and the player entity
+    id).
+
+    Persistent runtime state — world, party, turn, modes, messages,
+    party memory, facing — lives on ``self.game_state`` (M49). The
+    back-compat properties below keep existing call sites
+    (``app.world``, ``app.party``, ``app.ui_mode``, ...) working
+    unchanged while the GameState container becomes the canonical
+    source for save/load (M16) and the observation snapshot (M35).
+    """
+
+    game_state: GameState
     player: EntityId
-    party: PartyState
     dispatcher: Dispatcher
-    turn: TurnController = field(init=False)
-    messages: MessageState = field(default_factory=MessageState)
-    ui_mode: UIMode = UIMode.start
-    character_creation_state: CharacterCreationState | None = None
-    facing: tuple[int, int] = (1, 0)
     running: bool = True
-    memory: PartyMemory = field(default_factory=PartyMemory)
     vision: VisionSystem = field(default_factory=VisionSystem)
     effect_applier: EffectApplier = field(init=False)
 
     def __post_init__(self) -> None:
         self.effect_applier = EffectApplier(self)
-        self.turn = TurnController(
-            party_state=self.party,
-            hostiles_probe=lambda: bool(
-                hostiles_requiring_battle(self.world, self.party.members)
-            ),
-            can_take_turn=lambda entity: _can_take_turn(self.world, entity),
-            play_mode=play_mode_for_state(
-                bool(hostiles_requiring_battle(self.world, self.party.members))
-            ),
-        )
         self.refresh_vision()
 
     def refresh_vision(self) -> None:
@@ -99,9 +96,66 @@ class App:
     # Back-compat property surface
     # ------------------------------------------------------------------
     #
-    # The turn controller owns all of this state. These properties keep
-    # existing tests and the EffectApplier host protocol working without
-    # rewriting every call site.
+    # ``GameState`` owns the persistent fields. These properties keep
+    # every call site that read or wrote ``app.world``, ``app.party``,
+    # ``app.ui_mode``, etc. working unchanged. New code should prefer
+    # ``app.game_state.x`` directly.
+
+    @property
+    def world(self) -> World:
+        return self.game_state.world
+
+    @world.setter
+    def world(self, value: World) -> None:
+        self.game_state.world = value
+
+    @property
+    def party(self) -> PartyState:
+        return self.game_state.party
+
+    @property
+    def turn(self) -> TurnController:
+        return self.game_state.turn
+
+    @property
+    def ui_mode(self) -> UIMode:
+        return self.game_state.ui_mode
+
+    @ui_mode.setter
+    def ui_mode(self, value: UIMode) -> None:
+        self.game_state.ui_mode = value
+
+    @property
+    def messages(self) -> MessageState:
+        return self.game_state.messages
+
+    @messages.setter
+    def messages(self, value: MessageState) -> None:
+        self.game_state.messages = value
+
+    @property
+    def character_creation_state(self) -> CharacterCreationState | None:
+        return self.game_state.character_creation_state
+
+    @character_creation_state.setter
+    def character_creation_state(self, value: CharacterCreationState | None) -> None:
+        self.game_state.character_creation_state = value
+
+    @property
+    def memory(self) -> PartyMemory:
+        return self.game_state.memory
+
+    @memory.setter
+    def memory(self, value: PartyMemory) -> None:
+        self.game_state.memory = value
+
+    @property
+    def facing(self) -> tuple[int, int]:
+        return self.game_state.facing
+
+    @facing.setter
+    def facing(self, value: tuple[int, int]) -> None:
+        self.game_state.facing = value
 
     @property
     def active_party_index(self) -> int:
@@ -334,7 +388,7 @@ class App:
 
     def restart(self) -> None:
         built, party = _build_party_world(width=self.world.width, height=self.world.height)
-        self.world = built.world
+        self.game_state.world = built.world
         self.player = built.player
         # Mutate the existing PartyState in place so TurnController's
         # reference stays valid. ``turn.reset()`` clears active_index
@@ -376,11 +430,45 @@ def create_app(
             combat,
         ]
     )
-    return App(
+    party_state = PartyState.from_members(party)
+    game_state = GameState(
         world=built.world,
+        party=party_state,
+        turn=_make_turn_controller(party_state),  # patched immediately below
+    )
+    # Bind probes to the GameState so that ``restart`` (which replaces
+    # ``game_state.world``) keeps the controller's hostile-detection and
+    # turn-eligibility queries pointing at the *current* world rather
+    # than the one we built here.
+    game_state.turn.hostiles_probe = lambda: bool(
+        hostiles_requiring_battle(game_state.world, party_state.members)
+    )
+    game_state.turn.can_take_turn = lambda entity: _can_take_turn(
+        game_state.world, entity
+    )
+    game_state.turn.play_mode = play_mode_for_state(
+        bool(hostiles_requiring_battle(game_state.world, party_state.members))
+    )
+    return App(
+        game_state=game_state,
         player=built.player,
-        party=PartyState.from_members(party),
         dispatcher=dispatcher,
+    )
+
+
+def _make_turn_controller(party_state: PartyState) -> TurnController:
+    """Placeholder controller used during GameState construction.
+
+    The probes here are temporary — ``create_app`` overwrites them
+    with closures that read through the GameState so they survive
+    ``restart``. This shim exists because ``TurnController`` requires
+    non-None probes at construction time and we don't have a stable
+    handle to the GameState yet.
+    """
+    return TurnController(
+        party_state=party_state,
+        hostiles_probe=lambda: False,
+        can_take_turn=lambda _entity: True,
     )
 
 
