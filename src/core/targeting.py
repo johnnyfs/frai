@@ -263,6 +263,63 @@ def make_visible_predicate(observer: EntityId, *, radius: int) -> TargetPredicat
     return _predicate
 
 
+def make_spell_target_predicate(
+    caster: EntityId,
+    *,
+    radius: int,
+    require_hostile: bool,
+    allow_self_target: bool,
+) -> TargetPredicate:
+    """Build a predicate for single-entity spell targeting.
+
+    Layers three rules on top of :func:`make_visible_predicate`:
+
+    1. The cell must hold an entity with combat stats (something to
+       cast on).
+    2. If ``allow_self_target`` is False, the caster's own tile is
+       rejected. Fixes bug #100 — Enter-Enter on the spell menu used
+       to confirm the cursor at the caster's tile and damage the
+       caster.
+    3. If ``require_hostile`` is True (damage spells), the entity must
+       be hostile to the caster per
+       :func:`src.systems.awareness_system.is_hostile_to`. Fixes bug
+       #101 — Magic Missile / Fire Bolt would happily strike a party
+       member. Healing / buff spells flip this off so Cure Wounds can
+       still target friendlies.
+    """
+
+    visible = make_visible_predicate(caster, radius=radius)
+
+    def _predicate(world: World, x: int, y: int, origin: tuple[int, int]) -> bool:
+        from src.systems.awareness_system import is_hostile_to
+
+        if not visible(world, x, y, origin):
+            return False
+        candidates = [
+            entity
+            for entity in world.entities_at(x, y)
+            if world.combat_stats.has(entity)
+        ]
+        if not candidates:
+            return False
+        for entity in candidates:
+            if entity == caster:
+                if not allow_self_target:
+                    continue
+                return True
+            if require_hostile:
+                if is_hostile_to(world, caster, entity):
+                    return True
+            else:
+                # Friendly-target spells: anyone not hostile to the
+                # caster is fair game (party members, town NPCs).
+                if not is_hostile_to(world, caster, entity):
+                    return True
+        return False
+
+    return _predicate
+
+
 # ---------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------

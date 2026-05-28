@@ -139,6 +139,11 @@ class Spell:
       (Cure Wounds). ``count == 0`` means "no healing".
     - ``missiles``: number of independent damage rolls (Magic Missile
       is 3). Each missile rolls ``damage_dice`` separately.
+    - ``allow_self_target``: whether the caster's own tile is a legal
+      target. Defaults to ``False`` so damage spells can't auto-confirm
+      onto the caster when the targeting cursor opens on the caster's
+      tile (bug #100). Self-heal / self-buff spells (Cure Wounds) set
+      this ``True`` so a wounded caster can mend themselves.
     """
 
     spell_id: str
@@ -158,6 +163,24 @@ class Spell:
     damage_type: str = ""
     healing_dice: tuple[int, int, int] = (0, 0, 0)
     missiles: int = 1
+    allow_self_target: bool = False
+
+    @property
+    def is_damage_spell(self) -> bool:
+        """True if the spell deals damage (any non-zero damage dice).
+
+        Used by the targeting predicate (M11) to gate single-entity
+        targets on faction: damage spells require a hostile target,
+        non-damage spells (heal / buff) accept friendly targets.
+        """
+
+        return self.damage_dice[0] > 0
+
+    @property
+    def is_healing_spell(self) -> bool:
+        """True if the spell rolls healing dice."""
+
+        return self.healing_dice[0] > 0
 
 
 # ---------------------------------------------------------------------------
@@ -202,6 +225,7 @@ SPELL_CATALOG: dict[str, Spell] = {
         duration="Instantaneous",
         target_kind=SpellTargetKind.SINGLE_ENTITY,
         healing_dice=(1, 8, 0),  # 1d8 + caster ability mod
+        allow_self_target=True,  # self-heal is intentional (bug #100 carve-out)
     ),
     "burning_hands": Spell(
         spell_id="burning_hands",

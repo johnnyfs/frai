@@ -595,3 +595,198 @@ def test_app_no_spells_emits_message_and_stays_in_play() -> None:
         app.world.spell_lists.values.pop(player)
     app.handle_key(ord("s"))
     assert app.ui_mode is UIMode.play
+
+
+# ---------------------------------------------------------------------------
+# Bug regressions: #99 (fixture dispatcher), #100 (self-target), #101 (ally)
+# ---------------------------------------------------------------------------
+
+
+def test_spell_encounter_fixture_magic_missile_damages_kobold() -> None:
+    """Regression for #99: the spell_encounter fixture's dispatcher must
+    include SpellSystem so a cast actually applies damage.
+
+    Before the fix, ``CastSpellAttempt`` would consume a slot in
+    PRE_CHECK but no system handled the action in EFFECT, so the kobold
+    took zero damage even though the slot was burned.
+    """
+
+    from src.core.actions import CastSpellAttempt
+    from src.testing.fixtures import scenarios as _scenarios  # noqa: F401 — register
+
+    from src.testing import PlaytestHarness
+
+    harness = PlaytestHarness(scenario_name="spell_encounter", dev_mode=False)
+    world = harness.app.world
+    player = harness.app.player
+    # Pick the first kobold (kind == "kobold") from the world.
+    kobold = next(
+        entity
+        for entity, creature in world.creatures.values.items()
+        if creature.kind == "kobold"
+    )
+    # Beef the kobold up so a single magic_missile cast doesn't kill it
+    # (the entity would then drop out of world.combat_stats via the
+    # KillEntity effect and the HP comparison would have to special-case
+    # death). 30 HP is well above 3 * (4 + 1) max damage.
+    world.combat_stats.require(kobold).hit_points = 30
+    world.combat_stats.require(kobold).max_hit_points = 30
+    hp_before = world.combat_stats.require(kobold).hit_points
+    # Ensure the player has at least magic_missile + a slot. The
+    # wizard sheet should provide both, but force-set to be safe.
+    if not world.spell_lists.has(player):
+        world.spell_lists.add(player, SpellList(known=("magic_missile",)))
+    if not world.spell_slots.has(player):
+        world.spell_slots.add(player, SpellSlots.from_pairs({1: 2}))
+    action = CastSpellAttempt(
+        actor=player, spell_id="magic_missile", target_entity=kobold
+    )
+    effects = harness.app.resolve_action(action)
+    harness.app.apply_effects(effects)
+    hp_after = world.combat_stats.require(kobold).hit_points
+    assert hp_after < hp_before, (
+        f"kobold HP did not drop after magic_missile (before={hp_before}, "
+        f"after={hp_after}); SpellSystem likely missing from fixture dispatcher"
+    )
+
+
+def test_app_damage_spell_rejects_self_target_on_confirm() -> None:
+    """Bug #100: confirming the targeting cursor on the caster's own
+    tile must not damage the caster for a damage spell."""
+
+    from src.app import create_app
+
+    app = create_app()
+    app.ui_mode = UIMode.play
+    player = app.player
+    app.world.spell_lists.add(player, SpellList(known=("magic_missile",)))
+    app.world.spell_slots.add(player, SpellSlots.from_pairs({1: 2}))
+
+    # Open spell menu and select magic_missile.
+    app.handle_key(ord("s"))
+    app.handle_key(ord("a"))
+    assert app.ui_mode is UIMode.targeting
+
+    # Cursor starts on the caster's tile. Confirm immediately.
+    hp_before = app.world.combat_stats.require(player).hit_points
+    slot_before = app.world.spell_slots.require(player).remaining(1)
+    app.handle_key(13)  # Enter
+    # Still in targeting (predicate refused), no slot consumed, no HP loss.
+    assert app.ui_mode is UIMode.targeting, (
+        "self-target confirm should not exit targeting"
+    )
+    assert app.world.combat_stats.require(player).hit_points == hp_before
+    assert app.world.spell_slots.require(player).remaining(1) == slot_before
+    assert "Invalid target" in app.messages.current
+
+
+def test_app_damage_spell_rejects_ally_target() -> None:
+    """Bug #101: magic_missile must not accept a party ally as target."""
+
+    from src.app import create_app
+
+    app = create_app()
+    app.ui_mode = UIMode.play
+    player = app.player
+    app.world.spell_lists.add(player, SpellList(known=("magic_missile",)))
+    app.world.spell_slots.add(player, SpellSlots.from_pairs({1: 2}))
+
+    # Find an ally party member with combat_stats — create_app spawns
+    # companions adjacent to the player.
+    from src.core.factions import FactionId
+
+    ally = next(
+        entity
+        for entity, faction in app.world.factions.values.items()
+        if entity != player
+        and faction.value == FactionId.PLAYER_PARTY.value
+        and app.world.combat_stats.has(entity)
+    )
+    ally_pos = app.world.positions.require(ally)
+    player_pos = app.world.positions.require(player)
+
+    app.handle_key(ord("s"))
+    app.handle_key(ord("a"))
+    assert app.ui_mode is UIMode.targeting
+
+    # Move cursor onto the ally's tile.
+    dx = ally_pos.x - player_pos.x
+    dy = ally_pos.y - player_pos.y
+    app.targeting.set_cursor(player_pos.x + dx, player_pos.y + dy)
+    hp_before = app.world.combat_stats.require(ally).hit_points
+    slot_before = app.world.spell_slots.require(player).remaining(1)
+    app.handle_key(13)  # Enter
+    assert app.ui_mode is UIMode.targeting
+    assert app.world.combat_stats.require(ally).hit_points == hp_before
+    assert app.world.spell_slots.require(player).remaining(1) == slot_before
+    assert "Invalid target" in app.messages.current
+
+
+def test_app_cure_wounds_accepts_self_target() -> None:
+    """The allow_self_target carve-out: cure_wounds can mend the caster.
+
+    Regression guard so the #100 fix doesn't accidentally lock out
+    legitimate self-heals.
+    """
+
+    from src.app import create_app
+    from src.core.actions import CastSpellAttempt
+
+    app = create_app()
+    app.ui_mode = UIMode.play
+    player = app.player
+    # Wound the caster so healing has somewhere to go.
+    stats = app.world.combat_stats.require(player)
+    stats.hit_points = max(1, stats.max_hit_points - 5)
+    app.world.spell_lists.add(player, SpellList(known=("cure_wounds",)))
+    app.world.spell_slots.add(player, SpellSlots.from_pairs({1: 2}))
+
+    hp_before = stats.hit_points
+    # Drive through the SpellSystem directly — confirms the catalog
+    # entry can resolve onto the caster without raising. (The full UI
+    # confirm flow is exercised by test_app_spell_menu_opens_and_targets;
+    # this test specifically guards the self-target carve-out.)
+    action = CastSpellAttempt(
+        actor=player, spell_id="cure_wounds", target_entity=player
+    )
+    effects = app.resolve_action(action)
+    app.apply_effects(effects)
+    assert app.world.combat_stats.require(player).hit_points >= hp_before
+
+
+def test_app_cure_wounds_accepts_ally_target_via_ui() -> None:
+    """Bug #101 carve-out: friendly spells must still accept allies."""
+
+    from src.app import create_app
+    from src.core.factions import FactionId
+
+    app = create_app()
+    app.ui_mode = UIMode.play
+    player = app.player
+    app.world.spell_lists.add(player, SpellList(known=("cure_wounds",)))
+    app.world.spell_slots.add(player, SpellSlots.from_pairs({1: 2}))
+
+    ally = next(
+        entity
+        for entity, faction in app.world.factions.values.items()
+        if entity != player
+        and faction.value == FactionId.PLAYER_PARTY.value
+        and app.world.combat_stats.has(entity)
+    )
+    ally_pos = app.world.positions.require(ally)
+    player_pos = app.world.positions.require(player)
+    # cure_wounds has range 1 — confirm the ally is adjacent (companion
+    # placement in _build_party_world drops them next to the player).
+    assert max(abs(ally_pos.x - player_pos.x), abs(ally_pos.y - player_pos.y)) <= 1
+
+    # Wound the ally first so healing has somewhere to land.
+    ally_stats = app.world.combat_stats.require(ally)
+    ally_stats.hit_points = max(1, ally_stats.max_hit_points - 3)
+
+    app.handle_key(ord("s"))
+    app.handle_key(ord("a"))
+    assert app.ui_mode is UIMode.targeting
+    app.targeting.set_cursor(ally_pos.x, ally_pos.y)
+    app.handle_key(13)  # Enter
+    # Confirm dispatched and we exited targeting.
+    assert app.ui_mode is not UIMode.targeting

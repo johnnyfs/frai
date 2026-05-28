@@ -831,6 +831,11 @@ def make_fixture_app(
         context_resolver=MovementContextResolver(),
     )
     combat = CombatSystem(rng=rng)
+    # SpellSystem must be registered for any fixture that exercises
+    # spellcasting (M11). Omitting it causes CastSpellAttempt actions
+    # to consume a slot in PRE_CHECK but never produce damage / heal /
+    # condition effects -- bug #99. Mirrors the registration order in
+    # ``src.app.create_app``.
     dispatcher = Dispatcher(
         systems=[
             StartSystem(),

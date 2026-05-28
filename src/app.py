@@ -84,7 +84,7 @@ from src.core.targeting import (
     TargetingState,
     any_tile,
     any_visible_tile,
-    make_visible_predicate,
+    make_spell_target_predicate,
 )
 from src.core.time import SECONDS_PER_ROUND, SECONDS_PER_TURN, advance as advance_world_clock
 from src.core.turn_controller import TurnController
@@ -828,13 +828,38 @@ class App:
     def _begin_single_entity_target(self, actor: EntityId, spell_id: str) -> None:
         spell = spell_for_id(spell_id)
         position = self.world.positions.require(actor)
+        require_hostile = spell.is_damage_spell
+        allow_self_target = spell.allow_self_target
+
+        def _pick_target(cell: tuple[int, int]) -> EntityId | None:
+            """Pick the legal target on ``cell``.
+
+            Mirrors :func:`make_spell_target_predicate` so the confirm
+            callback never returns an entity the predicate would have
+            rejected. Self is only returned when ``allow_self_target``;
+            damage spells skip friendlies, friendly spells skip
+            hostiles.
+            """
+
+            from src.systems.awareness_system import is_hostile_to
+
+            for entity in self.world.entities_at(cell[0], cell[1]):
+                if not self.world.combat_stats.has(entity):
+                    continue
+                if entity == actor:
+                    if allow_self_target:
+                        return entity
+                    continue
+                if require_hostile:
+                    if is_hostile_to(self.world, actor, entity):
+                        return entity
+                else:
+                    if not is_hostile_to(self.world, actor, entity):
+                        return entity
+            return None
 
         def _on_confirm(cell: tuple[int, int]) -> Action | None:
-            entities = self.world.entities_at(cell[0], cell[1])
-            target = next(
-                (entity for entity in entities if self.world.combat_stats.has(entity)),
-                None,
-            )
+            target = _pick_target(cell)
             if target is None:
                 self.messages.emit("No target there.")
                 return None
@@ -848,7 +873,12 @@ class App:
                 cursor=(position.x, position.y),
                 range=spell.range,
                 on_confirm=_on_confirm,
-                predicate=make_visible_predicate(actor, radius=spell.range),
+                predicate=make_spell_target_predicate(
+                    actor,
+                    radius=spell.range,
+                    require_hostile=require_hostile,
+                    allow_self_target=allow_self_target,
+                ),
                 label=f"Target {spell.name} (range {spell.range})",
             )
         )
