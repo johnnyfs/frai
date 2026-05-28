@@ -84,7 +84,7 @@ Architecture direction:
 | M9  | Interaction primitives                             | M4, M7                      | #7                | complete   |
 | M10 | Combat variety and AI behaviors                    | M4, M7                      | #11               | complete   |
 | M11 | Basic spells and effects                           | M4, M5                      | pending           | pending    |
-| M12 | Items/equipment/shop                               | M5, M7                      | PR #10            | in review  |
+| M12 | Items/equipment/shop                               | M5, M7                      | #10               | complete   |
 | M13 | NPC and minimal dialogue                           | M6, M8                      | pending           | pending    |
 | M14 | Quest path                                         | M8, M10, M11, M12, M13      | pending           | pending    |
 | M15 | Boss/villain and dungeon balancing                 | M10, M11, M14               | pending           | pending    |
@@ -114,22 +114,53 @@ Architecture direction:
 | M39 | Online help (`?`)                                  | M31                         | #32               | unassigned |
 | M40 | Playtest bug-report workflow                       | M35, M37                    | #33               | unassigned |
 | M41 | Maintain-one-playtester process                    | M35, M36, M37, M38          | #34               | unassigned |
-| M42 | Unify Container with Inventory                     | M12 (PR #10)                | #35               | unassigned |
+| M42 | Unify Container with Inventory                     | M12                         | #35               | unassigned |
+| M43 | Extract EffectApplier / WorldMutator               | M1                          | #36               | unassigned |
+| M44 | Extract TurnController / ActivationSystem          | M4, M43                     | #37               | unassigned |
+| M45 | PartyState world abstraction                       | M1, M6, M44                 | #38               | unassigned |
+| M46 | ActionContext / ResolvedAttempt                    | M43, M44                    | #39               | unassigned |
+| M47 | Split UIMode and PlayMode                          | M1                          | #40               | unassigned |
+| M48 | AwarenessSystem query service                      | M1                          | #41               | unassigned |
+| M49 | GameState container                                | M43, M44, M45, M47          | #42               | unassigned |
 
-## Unblocked work right now (post-#10 merge)
+## Architectural refactor priority
 
-After PR #10 (M12) lands, the following milestones have ALL dependencies merged and are ready to assign:
+An external review (2026-05-27) identified that `src/app.py` is becoming a god object and the dispatcher lacks phases. Feature work (M19-M42) should not pile on more `App` complexity. Refactor milestones (M43-M49) are therefore TOP priority and partly front-loaded.
 
-- **#12 M33 Debug/dev tools** (depends on M2 done)
-- **#13 M35 Observation mode** (no deps — pure foundation; high priority because it unblocks the whole agentic-playtest tier)
-- **#14 M27 Time and clocks** (M4 done)
-- **#15 M26 Skill checks** (M5 done)
-- **#16 M28 Faction model** (M3, M6 done; M13 still pending but core is independent)
-- **#17 M19 Vision/LOS** (M1, M2, M7 done)
-- **#18 M32 Error/message discipline** (depends on M17, but a small standalone catalog can start now)
-- **#20 M30 Loot/corpses** (M9 done; M12 about to land)
+**Refactor wave 1 (dispatch in parallel — minimal file collisions):**
 
-Priority for first wave after M12 merges: **M19 vision, M27 time, M26 skill checks, M33 debug, M35 observation** — these unblock the largest downstream sub-DAGs.
+- **#36 M43 EffectApplier / WorldMutator** (gut the `App.apply_effects` isinstance chain). Sequential within this list — biggest scope.
+- **#40 M47 Split UIMode and PlayMode** (independent, small).
+- **#41 M48 AwarenessSystem query service** (independent, small).
+
+**Refactor wave 2 (after M43 lands):**
+
+- **#37 M44 TurnController / ActivationSystem** (extracts turn semantics from `App`; rebases on M43).
+- **#38 M45 PartyState** (after M44).
+- **#39 M46 ActionContext / ResolvedAttempt** (after M43, M44).
+
+**Refactor wave 3 (after M44, M45, M47 land):**
+
+- **#42 M49 GameState container** (consolidates the runtime aggregate; precondition for save/load and observation).
+
+## Feature work unblocked after refactor stabilizes
+
+Once refactor wave 1 is in, the following feature foundations can run safely in parallel:
+
+- **#12 M33 Debug/dev tools** (M2 done; uses extracted EffectApplier).
+- **#13 M35 Observation mode** (no hard refactor deps but cleaner after M49; can start with thin shim).
+- **#14 M27 Time and clocks** (M4 done; integrates with M44).
+- **#15 M26 Skill checks** (M5 done; resolves M9's check-required refusal path).
+- **#17 M19 Vision/LOS** (M1, M2, M7 done; benefits from M48 AwarenessSystem).
+- **#18 M32 Error/message discipline** (UI polish track).
+- **#20 M30 Loot/corpses** (M9, M12 done).
+- **#35 M42 Container/Inventory unification** (M12 just landed).
+
+## M12 follow-ups (small, can be assigned to junior agents)
+
+- **#43** M12 follow-up: `unequip_item` primitive.
+- **#44** M12 follow-up: enforce or remove `ItemDefinition.max_stack`.
+- **#45** M12 follow-up: replace `weapon_name`/`armor_name` string coupling.
 
 ## Milestone Detail
 
