@@ -28,6 +28,7 @@ from src.core.components import (
     Trap,
     Weapon,
 )
+from src.core.conditions import ConditionStore
 from src.core.entity import EntityId
 from src.core.loot import DropTable, GoldDrop, ItemDrop
 from src.core.time import Schedule, ScheduledEvent, WorldTime
@@ -99,6 +100,9 @@ class World:
     corpses: ComponentStore[Corpse] = field(default_factory=lambda: ComponentStore({}))
     loot_drops: ComponentStore[LootDrop] = field(default_factory=lambda: ComponentStore({}))
     god_modes: ComponentStore[GodMode] = field(default_factory=lambda: ComponentStore({}))
+    conditions: ComponentStore[ConditionStore] = field(
+        default_factory=lambda: ComponentStore({})
+    )
     clock: WorldTime = field(default_factory=WorldTime)
     schedule: Schedule = field(default_factory=Schedule)
 
@@ -173,6 +177,7 @@ class World:
             ("corpses", self.corpses),
             ("loot_drops", self.loot_drops),
             ("god_modes", self.god_modes),
+            ("conditions", self.conditions),
         ]
 
     def name_for(self, entity: EntityId) -> str:

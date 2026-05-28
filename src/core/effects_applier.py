@@ -18,12 +18,15 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Protocol
 
 from src.core.components import Corpse, GodMode, Inventory, Name, Position, Presentation
+from src.core.conditions import apply_condition, end_condition
 from src.core.effects import (
+    ApplyCondition,
     DamageEntity,
     DisarmTrap,
     DropToGround,
     Effect,
     EmitMessage,
+    EndCondition,
     GrantGold,
     GrantItem,
     KillEntity,
@@ -145,6 +148,14 @@ class EffectApplier:
             return
         if isinstance(effect, GrantItem):
             _apply_grant_item(self._host, effect)
+            return
+
+        # Conditions (M24)
+        if isinstance(effect, ApplyCondition):
+            _apply_apply_condition(self._host, effect)
+            return
+        if isinstance(effect, EndCondition):
+            _apply_end_condition(self._host, effect)
             return
 
         # Loot / pickup / drop (M30)
@@ -422,6 +433,26 @@ def _apply_grant_item(host: "App", effect: GrantItem) -> None:
     if inventory is None:
         return
     add_item(inventory, effect.item_id, quantity=effect.quantity)
+
+
+# ---------------------------------------------------------------------------
+# ConditionEffects (M24)
+# ---------------------------------------------------------------------------
+
+
+def _apply_apply_condition(host: "App", effect: ApplyCondition) -> None:
+    """Attach the condition to the target via :func:`apply_condition`.
+
+    The helper handles concentration handoff (the new ``concentrating``
+    condition replaces any prior one), seeds round/turn countdowns, and
+    resolves clock-driven expiry against ``world.clock``.
+    """
+    apply_condition(host.world, effect.entity, effect.condition)
+
+
+def _apply_end_condition(host: "App", effect: EndCondition) -> None:
+    """Remove every condition of ``effect.kind`` from the target."""
+    end_condition(host.world, effect.entity, effect.kind)
 
 
 # ---------------------------------------------------------------------------

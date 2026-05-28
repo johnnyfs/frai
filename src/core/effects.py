@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import TypeAlias
 
 from .character_creation import CharacterCreationState, CharacterSheet
+from .conditions import Condition, ConditionKind
 from .entity import EntityId
 from .modes import UIMode
 
@@ -162,6 +163,32 @@ class SpawnCorpse:
 
 
 @dataclass(frozen=True, slots=True)
+class ApplyCondition:
+    """Attach a :class:`Condition` to ``entity``.
+
+    The applier resolves duration policies against the current world
+    clock at apply time (so ``Minutes(5)`` becomes a concrete
+    ``expires_at``), and special-cases ``concentrating`` so applying a
+    new one ends any prior concentration on the same actor.
+    """
+
+    entity: EntityId
+    condition: Condition
+
+
+@dataclass(frozen=True, slots=True)
+class EndCondition:
+    """Remove every condition of ``kind`` from ``entity``.
+
+    No-op if the actor has no condition store yet, or no conditions of
+    that kind.
+    """
+
+    entity: EntityId
+    kind: ConditionKind
+
+
+@dataclass(frozen=True, slots=True)
 class DropToGround:
     """Drop ``quantity`` of ``item_id`` (or ``gold`` if item_id is None)
     from ``source``'s inventory to a fresh ground entity at (x, y).
@@ -200,4 +227,6 @@ Effect: TypeAlias = (
     | TransferInventory
     | SpawnCorpse
     | DropToGround
+    | ApplyCondition
+    | EndCondition
 )
