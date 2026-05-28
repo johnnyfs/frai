@@ -1,4 +1,6 @@
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Protocol
 import curses
 import random
 
@@ -97,7 +99,12 @@ from src.core.turn_controller import TurnController
 from src.core.turns import ActivationState
 from src.core.vision import PartyMemory
 from src.core.world import World
-from src.map.room_builder import BuiltRoom, build_room_world
+from src.world.content.skeleton import (
+    MIN_WORLD_SKELETON_HEIGHT,
+    MIN_WORLD_SKELETON_WIDTH,
+    BuiltWorldSkeleton,
+    build_world_skeleton,
+)
 from src.systems.game_over_system import GameOverSystem
 from src.systems.input_system import MOVE_KEYS, map_key
 from src.systems.inventory_system import InventorySystem
@@ -189,6 +196,12 @@ class App:
     # records the roster as the previous mode so Esc returns to it.
     character_sheet_state: CharacterSheetState | None = None
     loot_rng: random.Random = field(default_factory=random.Random)
+    # M8 world skeleton vs M0 starter room is picked at ``create_app``
+    # time. ``restart`` needs to reproduce the same world type, so the
+    # callable is stashed here. It is intentionally not persisted -- a
+    # loaded save brings its world wholesale through ``GameState``; the
+    # builder is only consulted on an in-process restart.
+    world_builder: "WorldBuilder | None" = None
     effect_applier: EffectApplier = field(init=False)
 
     def __post_init__(self) -> None:
@@ -1410,12 +1423,17 @@ class App:
     def _apply_recruit_effect(self, npc_entity: EntityId) -> None:
         """Add ``npc_entity`` to the party and remove it from the world.
 
-        The NPC marker, dialogue payload, presentation, and blocker
-        are stripped so the entity is no longer treated as a
-        standing NPC. The renderer projects party glyphs via
-        :class:`PartyState.members`, so the entity will now render
-        as ``#`` (or ``@`` if it ever becomes the lead).
+        The NPC marker and dialogue payload are stripped so the entity
+        is no longer treated as a standing NPC, and the stored
+        :class:`Presentation` glyph is updated to the numbered party
+        slot the new member just landed in (``1`` for the first
+        companion, ``2`` for the second, ...). The renderer's
+        ``_party_glyph`` projection independently agrees with this --
+        keeping both in lock-step means the M37 observation snapshot
+        and the on-screen map show the same glyph for the same actor.
         """
+
+        from src.systems.render_system import party_glyph_for_index
 
         if self.party.is_member(npc_entity):
             self.messages.emit("Already in your party.")
@@ -1427,6 +1445,13 @@ class App:
         # member from the next tick.
         world.npcs.values.pop(npc_entity, None)
         world.npc_dialogues.values.pop(npc_entity, None)
+        # Update the stored presentation so the observation glyph
+        # matches the renderer projection. ``recruit`` appends so the
+        # new index is ``len(members) - 1`` after the call.
+        new_index = len(self.party.members) - 1
+        world.presentations.add(
+            npc_entity, Presentation(party_glyph_for_index(new_index))
+        )
         # Switch faction to the party so awareness queries treat the
         # new member as friendly. The previous faction (typically
         # "town") is dropped wholesale -- M28 doesn't need the
@@ -1838,7 +1863,12 @@ class App:
         )
 
     def restart(self) -> None:
-        built, party = _build_party_world(width=self.world.width, height=self.world.height)
+        builder = self.world_builder if self.world_builder is not None else _build_default_world
+        built, party = _build_party_world(
+            width=self.world.width,
+            height=self.world.height,
+            world_builder=builder,
+        )
         self.game_state.world = built.world
         self.player = built.player
         # Mutate the existing PartyState in place so TurnController's
@@ -1856,13 +1886,64 @@ class App:
         self.refresh_vision()
 
 
+class BuiltWorld(Protocol):
+    """Structural protocol every ``world_builder`` must satisfy.
+
+    The two existing builders -- :class:`BuiltRoom` (M0 starter room,
+    still used by the fixture/test harness for tiny worlds) and
+    :class:`BuiltWorldSkeleton` (M8 overworld/town/forest/dungeon, the
+    default for interactive sessions) -- both expose ``world`` and
+    ``player`` already, so callers can pass either function directly as
+    a ``world_builder``.
+    """
+
+    @property
+    def world(self) -> World: ...
+
+    @property
+    def player(self) -> EntityId: ...
+
+
+WorldBuilder = Callable[[int, int], BuiltWorld]
+
+
+def _build_default_world(width: int, height: int) -> BuiltWorldSkeleton:
+    """Build the M8 world skeleton at (at least) its minimum size.
+
+    The skeleton's location specs are laid out within a 118x56 region,
+    so a smaller world would clip them off. We clamp up to the
+    skeleton's minimum and otherwise honour the requested dimensions
+    so a future caller can request a larger overworld without changing
+    the skeleton's anchor positions.
+    """
+
+    return build_world_skeleton(
+        width=max(width, MIN_WORLD_SKELETON_WIDTH),
+        height=max(height, MIN_WORLD_SKELETON_HEIGHT),
+    )
+
+
 def create_app(
     width: int = WORLD_WIDTH,
     height: int = WORLD_HEIGHT,
     *,
     rng: random.Random | None = None,
+    world_builder: WorldBuilder | None = None,
 ) -> App:
-    built, party = _build_party_world(width=width, height=height, rng=rng)
+    """Build a fully-wired :class:`App`.
+
+    The default ``world_builder`` is the M8 :func:`build_world_skeleton`
+    so a fresh interactive session lands the player in the overworld
+    crossroads, one short walk from Hearthgate, Captain Tane, and the
+    Sunken Gate (the M14 quest path). The M0 :func:`build_room_world`
+    can still be injected explicitly by tests and fixtures that need a
+    tiny, known map.
+    """
+
+    builder = world_builder if world_builder is not None else _build_default_world
+    built, party = _build_party_world(
+        width=width, height=height, rng=rng, world_builder=builder
+    )
     movement = MovementSystem(
         obstruction=ObstructionSystem(),
         context_resolver=MovementContextResolver(),
@@ -1911,6 +1992,7 @@ def create_app(
         player=built.player,
         dispatcher=dispatcher,
         loot_rng=loot_rng,
+        world_builder=builder,
     )
 
 
@@ -1935,16 +2017,21 @@ def _build_party_world(
     height: int,
     *,
     rng: random.Random | None = None,
-) -> tuple[BuiltRoom, list[EntityId]]:
-    """Build the starting room + party.
+    world_builder: WorldBuilder = _build_default_world,
+) -> tuple[BuiltWorld, list[EntityId]]:
+    """Build the starting world + party using ``world_builder``.
 
     The ``rng`` parameter threads into :func:`yolo_sheet` so a caller
     that needs a reproducible starting party (the M37 playtest harness,
     most prominently) can pin both the world layout and the YOLO class
     roll to the same seed. ``None`` keeps the legacy
     ``random.Random()`` behaviour the interactive launcher relies on.
+
+    ``world_builder`` defaults to the M8 :func:`build_world_skeleton`
+    (via :func:`_build_default_world`). Tests/fixtures inject
+    :func:`build_room_world` when they want a tiny known map.
     """
-    built = build_room_world(width=width, height=height)
+    built = world_builder(width, height)
     built.world.blockers.add(built.player, BlocksMovement("occupied"))
     player_sheet = yolo_sheet(rng=rng)
     _assign_character_sheet(built.world, built.player, player_sheet)
@@ -1970,8 +2057,10 @@ def _add_companions_for_player_sheet(
 ) -> list[EntityId]:
     party = [player]
     rng = random.Random(0)
-    for definition in companion_definitions_for_player_class(sheet.character_class):
-        party.append(_add_companion(world, player, definition, rng))
+    for index, definition in enumerate(
+        companion_definitions_for_player_class(sheet.character_class), start=1
+    ):
+        party.append(_add_companion(world, player, definition, rng, party_index=index))
     return party
 
 
@@ -1980,12 +2069,26 @@ def _add_companion(
     anchor: EntityId,
     definition: CompanionDefinition,
     rng: random.Random,
+    *,
+    party_index: int,
 ) -> EntityId:
+    """Spawn a companion at ``party_index`` (1, 2, 3, ...) within the party.
+
+    The stored :class:`Presentation` glyph is numbered (``1``-``9``)
+    rather than the historical ``#`` so the on-screen map and the M37
+    observation field agree at a glance with the status line's "Party
+    Member N" labels. Index 0 is the player and always renders ``@``;
+    we never assign 0 here because companions are appended after the
+    player entity.
+    """
+
+    from src.systems.render_system import party_glyph_for_index
+
     anchor_position = world.positions.require(anchor)
     x, y = _nearby_open_position(world, anchor_position.x, anchor_position.y, rng)
     entity = world.create_entity()
     world.positions.add(entity, Position(x=x, y=y))
-    world.presentations.add(entity, Presentation("#"))
+    world.presentations.add(entity, Presentation(party_glyph_for_index(party_index)))
     world.blockers.add(entity, BlocksMovement("occupied"))
     world.player_controlled.add(entity, PlayerControlled())
     world.names.add(entity, Name(definition.name))

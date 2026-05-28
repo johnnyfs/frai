@@ -33,7 +33,7 @@ restored = Observation.from_dict(payload)
 | ---                 | ---                                                                         | --- |
 | `mode`              | `{ui_mode: str, play_mode: str | None}`                                    | `play_mode` is `None` outside `UIMode.play`. |
 | `active_actor`      | `ActorSummary | None`                                                       | `{id, name, hp, max_hp, position, faction, glyph, level, xp, xp_to_next, level_up_pending}`. |
-| `party`             | `list[ActorSummary]`                                                        | Skips members without a `Position`. |
+| `party`             | `list[ActorSummary]`                                                        | Skips members without a `Position`. The leader's `glyph` is `@`, follower `N` is the digit `N` (or `#` past nine), matching what the renderer draws on the map. |
 | `visible_entities`  | `list[VisibleEntity]`                                                       | Anything within 10 tiles of the active actor, party excluded. Sorted by distance then id. |
 | `exits`             | `list[str]`                                                                 | Compass directions with no movement blocker on the adjacent tile. |
 | `recent_messages`   | `list[str]`                                                                 | Current + pending message pages (capped at 10). No log history yet. |

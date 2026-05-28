@@ -190,7 +190,7 @@ M11 - Basic spells and effects: representative attack spell, save spell, healing
 
 M12 - Items/equipment/shop: inventory, equipment slots, weapon/armor stats, consumables, shop buy/sell/equip. PR #10 in review.
 
-M13 - NPC and minimal dialogue: info NPCs, recruitable adventurers, shopkeeper interaction. Human NPCs render as `@`, joined party as `#`.
+M13 - NPC and minimal dialogue: info NPCs, recruitable adventurers, shopkeeper interaction. Human NPCs render as `@`, joined party as numbered companions (`1`-`9`, fallback `#` beyond nine).
 
 M14 - Quest path: town/tavern hook → dungeon boss treasure → victory flag.
 
