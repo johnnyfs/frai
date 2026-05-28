@@ -83,6 +83,9 @@ def test_app_container_interaction_marks_container_open() -> None:
     app.apply_effects(app._handle_interaction(InteractAttempt(app.player, 1, 0)))
 
     assert app.world.containers.require(container).is_open is True
+    # Unified Container/Inventory model: opening a container must expose its
+    # contents via an Inventory component on the same entity (M42).
+    assert app.world.inventories.has(container)
 
 
 def test_handle_key_interacts_with_faced_feature() -> None:

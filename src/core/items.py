@@ -217,3 +217,24 @@ def remove_item(inventory: Inventory, item_id: str, quantity: int = 1) -> bool:
         if remaining == 0:
             return True
     return False
+
+
+def transfer_item(
+    source: Inventory,
+    destination: Inventory,
+    item_id: str,
+    quantity: int = 1,
+) -> bool:
+    """Move ``quantity`` of ``item_id`` from ``source`` to ``destination``.
+
+    Returns True on success. Returns False (and leaves both inventories
+    untouched) if the source does not hold enough of the item.
+    """
+    if quantity <= 0:
+        raise ValueError("quantity must be positive")
+    require_item(item_id)
+    if not has_item(source, item_id, quantity):
+        return False
+    remove_item(source, item_id, quantity)
+    add_item(destination, item_id, quantity)
+    return True

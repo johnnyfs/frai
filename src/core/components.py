@@ -133,4 +133,12 @@ class Trap:
 
 @dataclass(slots=True)
 class Container:
+    """Marker for an entity that holds an inventory of items.
+
+    The ``is_open`` flag controls whether the contents are accessible to the
+    player. The authoritative contents store is the ``Inventory`` component on
+    the same entity (just like shops). Opening a container via ``OpenEntity``
+    ensures an empty ``Inventory`` exists if one wasn't seeded by content code.
+    """
+
     is_open: bool = False
