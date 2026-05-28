@@ -266,6 +266,25 @@ while app.running:
 curses screen. It is safe to call from any thread, including ones that
 do not own the terminal.
 
+## Filing playtest reports
+
+The standing `/playtest` agent files bugs and improvement requests via the
+GitHub issue templates committed to this repo. Use the GitHub "New Issue"
+picker and pick one of:
+
+- **Playtest bug** — `.github/ISSUE_TEMPLATE/playtest-bug.md`. Labels
+  `bug, playtest, needs-triage`. Required fields: scenario/fixture, seed,
+  build sha, command sequence, expected, actual, last structured
+  observation (`harness.observe().to_dict()` JSON dump), messages/log
+  excerpts, suspected subsystem, reproducibility, severity.
+- **Playtest improvement** — `.github/ISSUE_TEMPLATE/playtest-improvement.md`.
+  Labels `enhancement, playtest, needs-triage`. Required fields:
+  friction observed, why it matters (playability + agentic testing),
+  proposed behavior, priority.
+
+See `docs/playtest-workflow.md` for the full filing discipline, severity
+rubric, and the lead's triage flow.
+
 ## Limitations and follow-ups
 
 - No log of past messages. When a `MessageLog` lands (likely with
