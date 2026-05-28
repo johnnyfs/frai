@@ -88,6 +88,55 @@ def test_app_container_interaction_marks_container_open() -> None:
     assert app.world.inventories.has(container)
 
 
+def test_app_opened_container_removes_blocker_and_allows_walk_in() -> None:
+    """Regression for #80: opening a chest must clear its
+    ``BlocksMovement`` so the actor can step onto the tile and pick up
+    its contents via the M30 ground-pickup path. Before the fix the
+    chest's blocker persisted, walking east returned ``Blocked.``, and
+    the seeded loot was stranded forever."""
+    from src.core.actions import PickupAttempt
+    from src.core.components import Inventory
+    from src.core.items import add_item, has_item, item_count
+
+    app = create_app()
+    app.handle_key(ord("y"))
+    _clear_hostiles(app)
+    app.ui_mode = UIMode.play
+    player_position = app.world.positions.require(app.player)
+    start_x = player_position.x
+    container = _add_feature(app, start_x + 1, player_position.y)
+    app.world.containers.add(container, Container())
+    app.world.blockers.add(container, BlocksMovement("container"))
+    chest_inventory = Inventory(gold=25)
+    add_item(chest_inventory, "weapon.dagger", 1)
+    app.world.inventories.add(container, chest_inventory)
+
+    # Open the chest from the adjacent tile.
+    app.apply_effects(app._handle_interaction(InteractAttempt(app.player, 1, 0)))
+
+    assert app.world.containers.require(container).is_open is True
+    assert not app.world.blockers.has(container)
+
+    # Step onto the now-open chest tile.
+    app.apply_effects(app._handle_explore_move(MoveAttempt(app.player, 1, 0)))
+    assert app.world.positions.require(app.player).x == start_x + 1
+
+    # Pick up the contents from the chest tile.
+    party_inventory = app.world.inventories.require(app.player)
+    before_gold = party_inventory.gold
+    before_daggers = item_count(party_inventory, "weapon.dagger")
+
+    app.apply_effects(
+        app.dispatcher.dispatch(PickupAttempt(actor=app.player), app.world)
+    )
+
+    assert party_inventory.gold == before_gold + 25
+    assert has_item(party_inventory, "weapon.dagger", before_daggers + 1)
+    # The chest persists on the map but is now empty.
+    assert app.world.inventories.require(container).gold == 0
+    assert item_count(app.world.inventories.require(container), "weapon.dagger") == 0
+
+
 def test_handle_key_interacts_with_faced_feature() -> None:
     app = create_app()
     app.handle_key(ord("y"))

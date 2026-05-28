@@ -140,8 +140,15 @@ def test_container_opens() -> None:
     actor = add_actor(world, 2, 2)
     container = _add_feature(world, 3, 2)
     world.containers.add(container, Container())
+    world.blockers.add(container, BlocksMovement("container"))
     interaction = InteractionSystem()
 
     result = interaction.handle(InteractAttempt(actor, 1, 0), world)
 
-    assert result.effects == [OpenEntity(container), EmitMessage("Opened.")]
+    # Opening a container mirrors the door branch: the blocker is removed
+    # so the actor can step onto the tile and use the M30 pickup path.
+    assert result.effects == [
+        OpenEntity(container),
+        RemoveBlocker(container),
+        EmitMessage("Opened."),
+    ]
