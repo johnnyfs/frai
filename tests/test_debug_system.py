@@ -22,6 +22,7 @@ from src.core.effects import (
     EmitMessage,
     GrantGold,
     GrantItem,
+    GrantXP,
     MoveEntity,
     SetGodMode,
     SpawnEntity,
@@ -203,16 +204,99 @@ def test_grant_item_adds_to_inventory(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def test_grant_xp_is_a_documented_stub(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_grant_xp_emits_grant_effect_per_party_member(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("FRAI_DEV", "1")
+    fixture = build_tiny_party_world()
+
+    class _PartyHost:
+        def __init__(self, world, player, members) -> None:
+            self.world = world
+            self.player = player
+
+            class _P:
+                pass
+
+            self.party = _P()
+            self.party.members = list(members)
+
+    host = _PartyHost(fixture.world, fixture.player, fixture.party)
+    effects = run_debug_command("grant xp 100", host)
+    xp_effects = [effect for effect in effects if isinstance(effect, GrantXP)]
+    assert {effect.entity for effect in xp_effects} == set(fixture.party)
+    assert all(effect.amount == 100 for effect in xp_effects)
+    # And no GrantGold/GrantItem leakage from the xp branch.
+    assert not any(isinstance(effect, (GrantGold, GrantItem)) for effect in effects)
+
+
+def test_grant_xp_increments_every_pc_ledger(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("FRAI_DEV", "1")
+    app = create_app()
+    app.handle_key(ord("y"))  # finish YOLO start
+    app.ui_mode = UIMode.play
+
+    starting = {
+        member: (
+            app.world.experience_points.get(member).value
+            if app.world.experience_points.get(member) is not None
+            else 0
+        )
+        for member in app.party.members
+    }
+
+    app.run_debug_command("grant xp 100")
+
+    for member in app.party.members:
+        ledger = app.world.experience_points.require(member)
+        assert ledger.value == starting[member] + 100
+
+
+def test_grant_xp_300_triggers_level_up_available(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("FRAI_DEV", "1")
+    app = create_app()
+    app.handle_key(ord("y"))  # finish YOLO start
+    app.ui_mode = UIMode.play
+
+    # No member should have a pending level-up before the grant.
+    for member in app.party.members:
+        assert app.world.level_up_pending.get(member) is None
+
+    app.run_debug_command("grant xp 300")
+
+    # The XP threshold to level 2 is 300; every member should now have a
+    # LevelUpAvailable marker for level 2.
+    for member in app.party.members:
+        pending = app.world.level_up_pending.get(member)
+        assert pending is not None
+        assert pending.target_level == 2
+
+
+def test_grant_xp_rejects_invalid_amount(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("FRAI_DEV", "1")
     fixture = build_tiny_party_world()
     host = _FakeHost(fixture.world, fixture.player)
-    effects = run_debug_command("grant xp 500", host)
+    effects = run_debug_command("grant xp nope", host)
     assert any(
-        isinstance(effect, EmitMessage) and "M25" in effect.text for effect in effects
+        isinstance(effect, EmitMessage) and "invalid amount" in effect.text
+        for effect in effects
     )
-    # No GrantGold/GrantItem leakage from the xp stub.
-    assert not any(isinstance(effect, (GrantGold, GrantItem)) for effect in effects)
+    assert not any(isinstance(effect, GrantXP) for effect in effects)
+
+
+def test_grant_xp_falls_back_to_player_without_party(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("FRAI_DEV", "1")
+    fixture = build_tiny_party_world()
+    host = _FakeHost(fixture.world, fixture.player)
+    effects = run_debug_command("grant xp 50", host)
+    xp_effects = [effect for effect in effects if isinstance(effect, GrantXP)]
+    assert xp_effects == [GrantXP(fixture.player, 50)]
 
 
 def test_reveal_is_a_documented_stub(monkeypatch: pytest.MonkeyPatch) -> None:
