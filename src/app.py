@@ -110,7 +110,6 @@ class App:
             self.messages.advance()
             return
         self.sync_major_mode()
-        old_mode = self.mode
         action = map_key(key, self.mode, self.active_actor())
         if isinstance(action, EndTurn) and isinstance(self.mode, NormalMode):
             if is_turn_based(self.major_mode):
@@ -129,8 +128,6 @@ class App:
             return
         effects = self.dispatcher.dispatch(action, self.world)
         self.apply_effects(effects)
-        if old_mode != self.mode:
-            self.activation = ActivationState()
         self.sync_major_mode()
 
     def sync_major_mode(self) -> None:
@@ -141,7 +138,7 @@ class App:
         if next_mode == self.major_mode:
             return
         self.major_mode = next_mode
-        self.activation = ActivationState()
+        self.activation.reset_for_activation()
         if not is_turn_based(next_mode):
             self.active_party_index = 0
 
@@ -213,14 +210,14 @@ class App:
         for index in range(self.active_party_index + 1, len(self.party)):
             if _can_take_turn(self.world, self.party[index]):
                 self.active_party_index = index
-                self.activation = ActivationState()
+                self.activation.reset_for_activation()
                 return
         if self.major_mode == "battle":
             self.run_enemy_activations()
         for index, entity in enumerate(self.party):
             if _can_take_turn(self.world, entity):
                 self.active_party_index = index
-                self.activation = ActivationState()
+                self.activation.reset_for_activation()
                 return
 
     def run_enemy_activations(self) -> None:
