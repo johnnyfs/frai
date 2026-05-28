@@ -1,12 +1,9 @@
 from dataclasses import dataclass
-from typing import Literal
 
 
 MOVEMENT_TOTAL_FEET = 30.0
 ORTHOGONAL_MOVE_FEET = 3.0
 DIAGONAL_MOVE_FEET = 4.25
-
-MajorMode = Literal["explore", "turn", "battle"]
 
 
 @dataclass(slots=True)
@@ -73,15 +70,3 @@ def movement_cost(dx: int, dy: int) -> float:
     if dx != 0 and dy != 0:
         return DIAGONAL_MOVE_FEET
     return ORTHOGONAL_MOVE_FEET
-
-
-def major_mode_for_state(hostiles_present: bool, voluntary_turn_based: bool = False) -> MajorMode:
-    if hostiles_present:
-        return "battle"
-    if voluntary_turn_based:
-        return "turn"
-    return "explore"
-
-
-def is_turn_based(mode: MajorMode) -> bool:
-    return mode in ("turn", "battle")
