@@ -650,7 +650,7 @@ def create_app(
     *,
     rng: random.Random | None = None,
 ) -> App:
-    built, party = _build_party_world(width=width, height=height)
+    built, party = _build_party_world(width=width, height=height, rng=rng)
     movement = MovementSystem(
         obstruction=ObstructionSystem(),
         context_resolver=MovementContextResolver(),
@@ -714,10 +714,23 @@ def _make_turn_controller(party_state: PartyState) -> TurnController:
     )
 
 
-def _build_party_world(width: int, height: int) -> tuple[BuiltRoom, list[EntityId]]:
+def _build_party_world(
+    width: int,
+    height: int,
+    *,
+    rng: random.Random | None = None,
+) -> tuple[BuiltRoom, list[EntityId]]:
+    """Build the starting room + party.
+
+    The ``rng`` parameter threads into :func:`yolo_sheet` so a caller
+    that needs a reproducible starting party (the M37 playtest harness,
+    most prominently) can pin both the world layout and the YOLO class
+    roll to the same seed. ``None`` keeps the legacy
+    ``random.Random()`` behaviour the interactive launcher relies on.
+    """
     built = build_room_world(width=width, height=height)
     built.world.blockers.add(built.player, BlocksMovement("occupied"))
-    player_sheet = yolo_sheet()
+    player_sheet = yolo_sheet(rng=rng)
     _assign_character_sheet(built.world, built.player, player_sheet)
     party = _add_companions_for_player_sheet(built.world, built.player, player_sheet)
     return built, party
