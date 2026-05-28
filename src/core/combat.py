@@ -1,4 +1,4 @@
-from src.core.character_creation import CharacterSheet
+from src.core.character_creation import CLASSES, CharacterSheet, require_class
 from src.core.components import Armor, CombatStats, Weapon
 
 
@@ -26,48 +26,17 @@ ARMOR: dict[str, Armor] = {
 }
 
 STARTER_MELEE_WEAPON_BY_CLASS: dict[str, str] = {
-    "Barbarian": "greataxe",
-    "Bard": "rapier",
-    "Cleric": "mace",
-    "Druid": "scimitar",
-    "Fighter": "longsword",
-    "Monk": "shortsword",
-    "Paladin": "longsword",
-    "Ranger": "shortsword",
-    "Rogue": "rapier",
-    "Sorcerer": "dagger",
-    "Warlock": "quarterstaff",
-    "Wizard": "quarterstaff",
+    character_class.name: character_class.starting_equipment.weapon
+    for character_class in CLASSES
 }
 
 HIT_DIE_BY_CLASS: dict[str, int] = {
-    "Barbarian": 12,
-    "Bard": 8,
-    "Cleric": 8,
-    "Druid": 8,
-    "Fighter": 10,
-    "Monk": 8,
-    "Paladin": 10,
-    "Ranger": 10,
-    "Rogue": 8,
-    "Sorcerer": 6,
-    "Warlock": 8,
-    "Wizard": 6,
+    character_class.name: character_class.hit_die for character_class in CLASSES
 }
 
 STARTER_ARMOR_BY_CLASS: dict[str, str] = {
-    "Barbarian": "none",
-    "Bard": "leather armor",
-    "Cleric": "scale mail",
-    "Druid": "leather armor",
-    "Fighter": "chain mail",
-    "Monk": "none",
-    "Paladin": "chain mail",
-    "Ranger": "scale mail",
-    "Rogue": "leather armor",
-    "Sorcerer": "none",
-    "Warlock": "leather armor",
-    "Wizard": "none",
+    character_class.name: character_class.starting_equipment.armor
+    for character_class in CLASSES
 }
 
 
@@ -83,7 +52,7 @@ def weapon_for_name(name: str) -> Weapon:
 
 
 def starter_weapon_for_class(character_class: str) -> Weapon:
-    return weapon_for_name(STARTER_MELEE_WEAPON_BY_CLASS[character_class])
+    return weapon_for_name(require_class(character_class).starting_equipment.weapon)
 
 
 def armor_for_name(name: str) -> Armor:
@@ -96,7 +65,7 @@ def armor_for_name(name: str) -> Armor:
 
 
 def starter_armor_for_class(character_class: str) -> Armor:
-    return armor_for_name(STARTER_ARMOR_BY_CLASS[character_class])
+    return armor_for_name(require_class(character_class).starting_equipment.armor)
 
 
 def armor_class_for(dexterity: int, armor: Armor | None) -> int:
@@ -112,10 +81,16 @@ def armor_class_for(dexterity: int, armor: Armor | None) -> int:
     return armor.base_armor_class + min(dexterity_modifier, armor.dexterity_cap)
 
 
+def proficiency_bonus_for_level(level: int) -> int:
+    return 2 + max(0, level - 1) // 4
+
+
 def combat_stats_for_sheet(sheet: CharacterSheet, armor: Armor | None = None) -> CombatStats:
+    if sheet.level != 1:
+        raise ValueError("combat_stats_for_sheet currently supports only level 1 sheets.")
     dexterity = sheet.attributes["DEX"]
     constitution = sheet.attributes["CON"]
-    hit_die = HIT_DIE_BY_CLASS[sheet.character_class]
+    hit_die = require_class(sheet.character_class).hit_die
     max_hit_points = max(1, hit_die + ability_modifier(constitution))
     return CombatStats(
         armor_class=armor_class_for(dexterity, armor),
@@ -124,5 +99,5 @@ def combat_stats_for_sheet(sheet: CharacterSheet, armor: Armor | None = None) ->
         strength=sheet.attributes["STR"],
         dexterity=dexterity,
         constitution=constitution,
-        proficiency_bonus=2,
+        proficiency_bonus=proficiency_bonus_for_level(sheet.level),
     )
