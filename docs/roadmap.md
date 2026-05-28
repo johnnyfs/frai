@@ -71,9 +71,9 @@ Architecture direction:
 | M5 | Race/class creation foundation | M1, M2 | Harvey / `agent/m5-race-class-foundation` | complete | `uv run pytest` | #5 |
 | M6 | Party composition/adaptive companions | M5 | unassigned | pending | coverage logic tests | pending |
 | M7 | Map/terrain model expansion | M1, M2 | Planck / `agent/m7-terrain-model` | complete | `uv run pytest` | #4 |
-| M8 | World content skeleton | M7 | unassigned | pending | connected town/forest/dungeon tests | pending |
+| M8 | World content skeleton | M7 | Volta / `agent/m8-world-skeleton` | complete | `uv run pytest` | #8 |
 | M9 | Interaction primitives | M4, M7 | unassigned | pending | door/lock/trap/container interaction tests | pending |
-| M10 | Combat variety and AI behaviors | M4, M7 | unassigned | pending | AI legal-action tests | pending |
+| M10 | Combat variety and AI behaviors | M4, M7 | Gibbs / `agent/m10-ai-behaviors` | complete | `uv run pytest` | #11 |
 | M11 | Basic spells and effects | M4, M5 | unassigned | pending | resource/attack/save/heal/area tests | pending |
 | M12 | Items/equipment/shop | M5, M7 | unassigned | pending | buy/sell/equip tests | pending |
 | M13 | NPC and minimal dialogue | M6, M8 | unassigned | pending | info/recruit/shopkeeper interaction tests | pending |
