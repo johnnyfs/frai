@@ -74,6 +74,7 @@ class App:
     messages: MessageState = field(default_factory=MessageState)
     mode: GameMode = field(default_factory=StartChoiceMode)
     major_mode: MajorMode = "explore"
+    facing: tuple[int, int] = (1, 0)
     voluntary_turn_based: bool = False
     running: bool = True
 
@@ -157,10 +158,14 @@ class App:
             self.sync_major_mode()
             return
         if isinstance(action, InteractAttempt) and isinstance(self.mode, NormalMode):
+            if action.dx == 0 and action.dy == 0:
+                action = InteractAttempt(action.actor, self.facing[0], self.facing[1], action.check_result)
             self.apply_effects(self._handle_interaction(action))
             self.sync_major_mode()
             return
         if isinstance(action, MoveAttempt) and isinstance(self.mode, NormalMode):
+            if action.dx != 0 or action.dy != 0:
+                self.facing = (action.dx, action.dy)
             if is_turn_based(self.major_mode):
                 self.apply_effects(self._handle_active_move(action))
             else:
@@ -288,6 +293,7 @@ class App:
         self.party = party
         self.active_party_index = 0
         self.activation = ActivationState()
+        self.facing = (1, 0)
         self.voluntary_turn_based = False
         self.major_mode = "explore"
         self.mode = StartChoiceMode()

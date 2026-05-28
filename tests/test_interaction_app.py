@@ -83,6 +83,33 @@ def test_app_container_interaction_marks_container_open() -> None:
     assert app.world.containers.require(container).is_open is True
 
 
+def test_handle_key_interacts_with_faced_feature() -> None:
+    app = create_app()
+    app.handle_key(ord("y"))
+    _clear_hostiles(app)
+    player_position = app.world.positions.require(app.player)
+    container = _add_feature(app, player_position.x + 1, player_position.y)
+    app.world.containers.add(container, Container())
+
+    app.handle_key(ord("e"))
+
+    assert app.world.containers.require(container).is_open is True
+
+
+def test_handle_key_uses_last_movement_direction_for_interaction() -> None:
+    app = create_app()
+    app.handle_key(ord("y"))
+    _clear_hostiles(app)
+    player_position = app.world.positions.require(app.player)
+    container = _add_feature(app, player_position.x, player_position.y + 2)
+    app.world.containers.add(container, Container())
+
+    app.handle_key(ord("j"))
+    app.handle_key(ord("e"))
+
+    assert app.world.containers.require(container).is_open is True
+
+
 def test_turn_based_interaction_spends_action_and_blocks_second_interaction() -> None:
     app = create_app()
     app.handle_key(ord("y"))

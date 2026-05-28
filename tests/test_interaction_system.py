@@ -94,6 +94,18 @@ def test_trap_can_be_disarmed() -> None:
     assert result.effects == [DisarmTrap(trap), EmitMessage("Trap disarmed.")]
 
 
+def test_reusable_trap_still_emits_trigger_event() -> None:
+    world = build_tiny_map()
+    actor = add_actor(world, 2, 2)
+    trap = _add_feature(world, 3, 2)
+    world.traps.add(trap, Trap(disarm_dc=12, damage=3, reusable=True))
+    interaction = InteractionSystem()
+
+    result = interaction.handle(InteractAttempt(actor, 1, 0, check_result=7), world)
+
+    assert result.effects == [DamageEntity(actor, 3), EmitMessage("Trap triggered."), TriggerTrap(trap)]
+
+
 def test_container_opens() -> None:
     world = build_tiny_map()
     actor = add_actor(world, 2, 2)

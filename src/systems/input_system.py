@@ -6,6 +6,7 @@ from src.core.actions import (
     CloseInventory,
     EndTurn,
     GameOverChoice,
+    InteractAttempt,
     InventoryRequest,
     MoveAttempt,
     QuitConfirm,
@@ -94,6 +95,8 @@ def map_key(key: int, mode: GameMode, player: EntityId) -> Action | None:
             return ToggleTurnMode()
         if key_name == "i":
             return InventoryRequest()
+        if key_name == "e":
+            return InteractAttempt(actor=player, dx=0, dy=0)
         if key_name in MOVE_KEYS:
             dx, dy = MOVE_KEYS[key_name]
             return MoveAttempt(actor=player, dx=dx, dy=dy)

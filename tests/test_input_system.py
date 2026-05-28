@@ -2,6 +2,7 @@ from src.core.actions import (
     CharacterCreationCommand,
     CloseInventory,
     EndTurn,
+    InteractAttempt,
     InventoryRequest,
     MoveAttempt,
     QuitConfirm,
@@ -29,6 +30,10 @@ def test_normal_mode_maps_q_to_quit_request() -> None:
 
 def test_normal_mode_maps_i_to_inventory_request() -> None:
     assert map_key(ord("i"), NormalMode(), EntityId(1)) == InventoryRequest()
+
+
+def test_normal_mode_maps_e_to_interact_attempt() -> None:
+    assert map_key(ord("e"), NormalMode(), EntityId(1)) == InteractAttempt(EntityId(1), 0, 0)
 
 
 def test_normal_mode_maps_space_to_end_turn() -> None:
