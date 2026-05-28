@@ -2,6 +2,12 @@ from src.app import create_app
 from src.core.components import CombatStats, Faction, Name, Position
 from src.core.config import PLAYFIELD_WIDTH
 from src.core.effects import KillEntity
+from src.core.entity import EntityId
+from src.core.items import (
+    armor_item_id_for_name,
+    item_count,
+    weapon_item_id_for_name,
+)
 from src.core.modes import (
     CharacterCreationMode,
     ConfirmQuitMode,
@@ -10,6 +16,7 @@ from src.core.modes import (
     NormalMode,
     StartChoiceMode,
 )
+from src.core.world import World
 from src.map.tiles import RUBBLE
 
 
@@ -17,6 +24,22 @@ def move_extra_party_members_away(app) -> None:
     for index, entity in enumerate(app.party[2:]):
         app.world.positions.require(entity).x = 170 + index
         app.world.positions.require(entity).y = 40
+
+
+def _assert_starter_inventory_and_equipment(world: World, entity: EntityId) -> None:
+    weapon_item_id = weapon_item_id_for_name(world.weapons.require(entity).name)
+    armor_item_id = armor_item_id_for_name(world.armor.require(entity).name)
+    inventory = world.inventories.require(entity)
+    equipment = world.equipment.require(entity)
+
+    assert inventory.gold == 25
+    assert item_count(inventory, weapon_item_id) == 1
+    assert equipment.weapon_item_id == weapon_item_id
+    if armor_item_id is None:
+        assert equipment.armor_item_id is None
+    else:
+        assert item_count(inventory, armor_item_id) == 1
+        assert equipment.armor_item_id == armor_item_id
 
 
 def test_quit_prompt_and_cancel_flow_uses_effects() -> None:
@@ -99,6 +122,14 @@ def test_yolo_choice_assigns_sheet_and_starts_game() -> None:
     assert app.messages.current.startswith("YOLO:")
 
 
+def test_yolo_choice_seeds_player_starter_inventory_and_equipment() -> None:
+    app = create_app()
+
+    app.handle_key(ord("y"))
+
+    _assert_starter_inventory_and_equipment(app.world, app.player)
+
+
 def test_app_starts_with_yolo_party_members_nearby() -> None:
     app = create_app()
     player_position = app.world.positions.require(app.player)
@@ -116,6 +147,12 @@ def test_app_starts_with_yolo_party_members_nearby() -> None:
             abs(companion_position.x - player_position.x),
             abs(companion_position.y - player_position.y),
         ) <= 7
+
+
+def test_create_app_seeds_companion_starter_inventory_and_equipment() -> None:
+    app = create_app()
+
+    _assert_starter_inventory_and_equipment(app.world, app.party[1])
 
 
 def test_battle_mode_uses_space_to_rotate_active_party_focus() -> None:
@@ -768,6 +805,22 @@ def test_created_character_gets_class_starter_armor() -> None:
 
     assert app.world.armor.require(app.player).name == "chain mail"
     assert app.world.combat_stats.require(app.player).armor_class == 16
+
+
+def test_created_character_gets_starter_inventory_and_equipment() -> None:
+    app = create_app()
+
+    app.handle_key(ord("c"))
+    app.handle_key(ord("u"))  # Human
+    app.handle_key(ord("f"))  # Fighter
+    app.handle_key(ord("c"))  # Champion
+    app.handle_key(ord("a"))
+    app.handle_key(ord("t"))
+    app.handle_key(ord("y"))
+    app.handle_key(ord("y"))
+    app.handle_key(ord("y"))
+
+    _assert_starter_inventory_and_equipment(app.world, app.player)
 
 
 def test_inventory_command_opens_and_closes_inventory() -> None:
