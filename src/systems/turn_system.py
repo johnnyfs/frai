@@ -26,7 +26,7 @@ class TurnSystem:
     def handle(self, action: Action, world: World) -> DispatchResult:
         if not isinstance(action, MoveAttempt):
             return DispatchResult()
-        if action.actor != world.player_entity():
+        if not world.player_controlled.has(action.actor):
             return DispatchResult()
 
         initiative = self._initiative_order(world)
@@ -42,11 +42,12 @@ class TurnSystem:
                 continue
             if not world.combat_stats.has(entry.entity):
                 continue
-            actor_action = (
-                action
-                if entry.entity == action.actor
-                else self._decide_npc_action(entry.entity, world, positions, dead)
-            )
+            if entry.entity == action.actor:
+                actor_action = action
+            elif world.player_controlled.has(entry.entity):
+                actor_action = None
+            else:
+                actor_action = self._decide_npc_action(entry.entity, world, positions, dead)
             if actor_action is None:
                 continue
             resolved = self._resolve(actor_action, world, positions, initial_positions, hit_points, dead)
@@ -75,15 +76,15 @@ class TurnSystem:
         positions: dict[EntityId, tuple[int, int]],
         dead: set[EntityId],
     ) -> Action | None:
-        player = world.player_entity()
-        if player in dead or player not in positions or entity not in positions:
+        target = _nearest_controlled_target(entity, world, positions, dead)
+        if target is None or entity not in positions:
             return None
         x, y = positions[entity]
-        player_x, player_y = positions[player]
-        dx = _sign(player_x - x)
-        dy = _sign(player_y - y)
-        if max(abs(player_x - x), abs(player_y - y)) <= 1:
-            return AttackAttempt(actor=entity, target=player)
+        target_x, target_y = positions[target]
+        dx = _sign(target_x - x)
+        dy = _sign(target_y - y)
+        if max(abs(target_x - x), abs(target_y - y)) <= 1:
+            return AttackAttempt(actor=entity, target=target)
         return MoveAttempt(actor=entity, dx=dx, dy=dy)
 
     def _resolve(
@@ -120,9 +121,10 @@ class TurnSystem:
             return []
         x, y = positions[action.actor]
         destination = (x + action.dx, y + action.dy)
+        is_controlled = world.player_controlled.has(action.actor)
         tile = world.tile_at(*destination)
         if tile.blocks_movement:
-            return [EmitMessage("Blocked.")] if action.actor == world.player_entity() else []
+            return [EmitMessage("Blocked.")] if is_controlled else []
 
         occupant = _occupant_at(destination, positions, dead, exclude=action.actor)
         if occupant is not None and world.blockers.has(occupant):
@@ -132,7 +134,7 @@ class TurnSystem:
                     world,
                     target_hit_points=hit_points.get(occupant),
                 )
-            return [EmitMessage("Blocked.")] if action.actor == world.player_entity() else []
+            return [EmitMessage("Blocked.")] if is_controlled else []
 
         return [MoveEntity(action.actor, destination[0], destination[1])]
 
@@ -162,6 +164,31 @@ def _occupant_at(
         if entity != exclude and entity not in dead and position == destination:
             return entity
     return None
+
+
+def _nearest_controlled_target(
+    actor: EntityId,
+    world: World,
+    positions: dict[EntityId, tuple[int, int]],
+    dead: set[EntityId],
+) -> EntityId | None:
+    if actor not in positions:
+        return None
+    actor_x, actor_y = positions[actor]
+    candidates = [
+        entity
+        for entity in world.controlled_entities()
+        if entity not in dead and entity in positions and world.combat_stats.has(entity)
+    ]
+    if not candidates:
+        return None
+    return min(
+        candidates,
+        key=lambda entity: max(
+            abs(positions[entity][0] - actor_x),
+            abs(positions[entity][1] - actor_y),
+        ),
+    )
 
 
 def _is_hostile(actor: EntityId, target: EntityId, world: World) -> bool:

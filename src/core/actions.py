@@ -55,6 +55,11 @@ class CloseInventory:
     pass
 
 
+@dataclass(frozen=True, slots=True)
+class EndTurn:
+    pass
+
+
 Action: TypeAlias = (
     MoveAttempt
     | QuitRequest
@@ -65,4 +70,5 @@ Action: TypeAlias = (
     | GameOverChoice
     | InventoryRequest
     | CloseInventory
+    | EndTurn
 )

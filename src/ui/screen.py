@@ -37,5 +37,12 @@ class Screen:
         except curses.error:
             pass
 
+    def move_cursor(self, x: int, y: int) -> None:
+        if 0 <= x < self.width and 0 <= y < self.height:
+            try:
+                self.stdscr.move(y, x)
+            except curses.error:
+                pass
+
     def refresh(self) -> None:
         self.stdscr.refresh()

@@ -1,4 +1,13 @@
-from src.core.actions import CharacterCreationCommand, CloseInventory, InventoryRequest, MoveAttempt, QuitConfirm, QuitRequest, StartChoice
+from src.core.actions import (
+    CharacterCreationCommand,
+    CloseInventory,
+    EndTurn,
+    InventoryRequest,
+    MoveAttempt,
+    QuitConfirm,
+    QuitRequest,
+    StartChoice,
+)
 from src.core.character_creation import initial_character_creation_state
 from src.core.entity import EntityId
 from src.core.modes import CharacterCreationMode, ConfirmQuitMode, InventoryMode, NormalMode, StartChoiceMode
@@ -19,6 +28,10 @@ def test_normal_mode_maps_q_to_quit_request() -> None:
 
 def test_normal_mode_maps_i_to_inventory_request() -> None:
     assert map_key(ord("i"), NormalMode(), EntityId(1)) == InventoryRequest()
+
+
+def test_normal_mode_maps_space_to_end_turn() -> None:
+    assert map_key(ord(" "), NormalMode(), EntityId(1)) == EndTurn()
 
 
 def test_inventory_mode_maps_close_keys() -> None:

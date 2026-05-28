@@ -4,6 +4,7 @@ from src.core.actions import (
     Action,
     CharacterCreationCommand,
     CloseInventory,
+    EndTurn,
     GameOverChoice,
     InventoryRequest,
     MoveAttempt,
@@ -86,6 +87,8 @@ def map_key(key: int, mode: GameMode, player: EntityId) -> Action | None:
         return None
 
     if isinstance(mode, NormalMode):
+        if key_name == " ":
+            return EndTurn()
         if key_name == "i":
             return InventoryRequest()
         if key_name in MOVE_KEYS:

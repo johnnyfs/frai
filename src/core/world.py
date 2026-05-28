@@ -94,6 +94,9 @@ class World:
             return entity
         raise LookupError("World has no player-controlled entity.")
 
+    def controlled_entities(self) -> list[EntityId]:
+        return list(self.player_controlled.values)
+
     def remove_entity(self, entity: EntityId) -> None:
         for store in (
             self.positions,

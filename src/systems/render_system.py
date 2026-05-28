@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from collections.abc import Sequence
 
 from src.core.components import Presentation
 from src.core.character_creation import (
@@ -30,15 +31,7 @@ class Glyph:
 
 
 def presentation_for(observer: EntityId, world: World, x: int, y: int) -> Glyph:
-    for entity in world.entities_at(x, y):
-        presentation: Presentation | None = world.presentations.get(entity)
-        if presentation is not None:
-            return Glyph(presentation.glyph)
-
-    tile = world.tile_at(x, y)
-    if tile.kind in (TileKind.WALL, TileKind.FLOOR):
-        return Glyph(tile.glyph)
-    return Glyph(tile.glyph)
+    return _presentation_for(observer, world, x, y, ())
 
 
 def render(
@@ -48,6 +41,10 @@ def render(
     messages: MessageState,
     mode: GameMode,
     focus: EntityId | None = None,
+    party: Sequence[EntityId] = (),
+    movement_used: float = 0.0,
+    movement_total: float = 30.0,
+    major_mode: str = "explore",
 ) -> None:
     screen.clear()
     layout = Layout(width=screen.width, height=screen.height)
@@ -79,29 +76,63 @@ def render(
         layout.origin_x,
     )
 
+    focus_entity = focus if focus is not None else observer
     viewport_x, viewport_y = _viewport_origin(
         world,
         layout,
-        focus if focus is not None else observer,
+        focus_entity,
     )
     for screen_y in range(layout.map_top, layout.map_bottom + 1):
         world_y = viewport_y + screen_y - layout.map_top
         for viewport_column in range(layout.playfield_width):
             world_x = viewport_x + viewport_column
             screen_x = layout.origin_x + viewport_column
-            glyph = presentation_for(observer, world, world_x, world_y)
+            glyph = _presentation_for(observer, world, world_x, world_y, party)
             screen.draw_char(screen_x, screen_y, glyph.char)
 
     screen.print_line(
         layout.status_y,
-        _status_line(world, observer).ljust(layout.playfield_width),
+        _status_line(world, observer, party, movement_used, movement_total, major_mode).ljust(
+            layout.playfield_width
+        ),
         layout.origin_x,
     )
+    focus_position = _focus_screen_position(world, layout, focus_entity, viewport_x, viewport_y)
+    if focus_position is not None:
+        screen.move_cursor(*focus_position)
     screen.refresh()
 
 
 def _line(screen: Screen, layout: Layout, row: int, text: str = "") -> None:
     screen.print_line(row, text[: layout.playfield_width].ljust(layout.playfield_width), layout.origin_x)
+
+
+def _presentation_for(
+    observer: EntityId,
+    world: World,
+    x: int,
+    y: int,
+    party: Sequence[EntityId],
+) -> Glyph:
+    for entity in world.entities_at(x, y):
+        party_glyph = _party_glyph(entity, party)
+        if party_glyph is not None:
+            return Glyph(party_glyph)
+        presentation: Presentation | None = world.presentations.get(entity)
+        if presentation is not None:
+            return Glyph(presentation.glyph)
+
+    tile = world.tile_at(x, y)
+    if tile.kind in (TileKind.WALL, TileKind.FLOOR):
+        return Glyph(tile.glyph)
+    return Glyph(tile.glyph)
+
+
+def _party_glyph(entity: EntityId, party: Sequence[EntityId]) -> str | None:
+    for index, party_entity in enumerate(party):
+        if entity == party_entity:
+            return "@" if index == 0 else str(index)
+    return None
 
 
 def _viewport_origin(world: World, layout: Layout, focus: EntityId) -> tuple[int, int]:
@@ -115,6 +146,26 @@ def _viewport_origin(world: World, layout: Layout, focus: EntityId) -> tuple[int
     return origin_x, origin_y
 
 
+def _focus_screen_position(
+    world: World,
+    layout: Layout,
+    focus: EntityId,
+    viewport_x: int,
+    viewport_y: int,
+) -> tuple[int, int] | None:
+    position = world.positions.get(focus)
+    if position is None:
+        return None
+    screen_x = layout.origin_x + position.x - viewport_x
+    screen_y = layout.map_top + position.y - viewport_y
+    if not (
+        layout.origin_x <= screen_x < layout.origin_x + layout.playfield_width
+        and layout.map_top <= screen_y <= layout.map_bottom
+    ):
+        return None
+    return screen_x, screen_y
+
+
 def _message_line(messages: MessageState) -> str:
     if messages.awaiting_more:
         suffix = f" {MORE_PROMPT}"
@@ -124,11 +175,50 @@ def _message_line(messages: MessageState) -> str:
     return messages.current[:PLAYFIELD_WIDTH].ljust(PLAYFIELD_WIDTH)
 
 
-def _status_line(world: World, observer: EntityId) -> str:
+def _status_line(
+    world: World,
+    observer: EntityId,
+    party: Sequence[EntityId] = (),
+    movement_used: float = 0.0,
+    movement_total: float = 30.0,
+    major_mode: str = "explore",
+) -> str:
+    mode_label = major_mode.capitalize()
+    label = _status_label(world, observer, party)
+    movement = (
+        f"  Move {_format_feet(movement_used)}/{_format_feet(movement_total)}"
+        if major_mode == "battle"
+        else ""
+    )
     stats = world.combat_stats.get(observer)
     if stats is None:
-        return "HP -/-  AC -"
-    return f"HP {stats.hit_points}/{stats.max_hit_points}  AC {stats.armor_class}"
+        return f"{mode_label}  {label}  HP -/-  AC -{movement}"
+    return (
+        f"{mode_label}  {label}  HP {stats.hit_points}/{stats.max_hit_points}  "
+        f"AC {stats.armor_class}{movement}"
+    )
+
+
+def _status_label(world: World, observer: EntityId, party: Sequence[EntityId]) -> str:
+    character = world.characters.get(observer)
+    class_name = f" {character.sheet.character_class}" if character is not None else ""
+    for index, entity in enumerate(party):
+        if entity == observer:
+            if index == 0:
+                return f"Player{class_name}"
+            return f"Party Member {index}{class_name}"
+    for index, entity in enumerate(world.controlled_entities()):
+        if entity == observer:
+            if index == 0:
+                return f"Player{class_name}"
+            return f"Party Member {index}{class_name}"
+    return f"Entity {int(observer)}{class_name}"
+
+
+def _format_feet(value: float) -> str:
+    if value.is_integer():
+        return str(int(value))
+    return f"{value:.2f}".rstrip("0").rstrip(".")
 
 
 def _inventory_lines(world: World, entity: EntityId) -> list[str]:

@@ -27,7 +27,7 @@ class StartSystem:
                 cancel=True,
             )
 
-        sheet = _yolo_sheet()
+        sheet = yolo_sheet()
         return DispatchResult(
             effects=[
                 SetCharacterSheet(world.player_entity(), sheet),
@@ -38,7 +38,7 @@ class StartSystem:
         )
 
 
-def _yolo_sheet() -> CharacterSheet:
+def yolo_sheet() -> CharacterSheet:
     rng = random.Random()
     state = initial_character_creation_state()
     state = with_selection(state, rng.choice(RACES).name)
