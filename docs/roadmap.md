@@ -87,7 +87,7 @@ Architecture direction:
 | M12 | Items/equipment/shop                               | M5, M7                      | #10               | complete   |
 | M13 | NPC and minimal dialogue                           | M6, M8                      | pending           | complete   |
 | M14 | Quest path                                         | M8, M10, M11, M12, M13      | pending           | pending    |
-| M15 | Boss/villain and dungeon balancing                 | M10, M11, M14               | pending           | pending    |
+| M15 | Boss/villain and dungeon balancing                 | M10, M11, M14               | pending           | in review  |
 | M16 | Save/restore architecture                          | M1, M5, M8, M12             | #67               | complete   |
 | M17 | UI polish for playtest                             | M3, M4, M8, M12, M13, M16   | pending           | pending    |
 | M18 | End-to-end integration confidence                  | M14, M15, M16, M17          | pending           | pending    |

@@ -37,6 +37,7 @@ from src.core.quest import SUNKEN_GATE_QUEST_ID
 from src.core.shelter import RestPermission, RestRisk, ShelterZone
 from src.core.world import World
 from src.map.tiles import DUNGEON_FLOOR, FOREST, GRASS, ROAD, TOWN_FLOOR, WATER, Tile
+from src.world.content.dungeon import DUNGEON_LEVELS, populate_dungeon_level
 
 
 MIN_WORLD_SKELETON_WIDTH = 118
@@ -155,6 +156,7 @@ def build_world_skeleton(
     world.factions.add(player, Faction(FactionId.PLAYER_PARTY.value))
 
     _populate_town(world, _location_by_id(locations, "town"))
+    _populate_dungeon_levels(world, locations)
     _populate_dungeon_boss(world, _location_by_id(locations, "dungeon_level_3"))
     _populate_shelter_zones(
         world,
@@ -651,6 +653,40 @@ def _spawn_quest_giver(
         ),
     )
     return entity
+
+
+def _populate_dungeon_levels(
+    world: World,
+    locations: tuple[LocationSpec, ...],
+) -> None:
+    """Populate per-level dungeon content (M15).
+
+    Walks the :data:`DUNGEON_LEVELS` catalog and asks the dungeon
+    content module to spawn the typed creature/trap/container specs
+    relative to each level's anchor. The boss (M14) is added on top
+    by :func:`_populate_dungeon_boss` so its placement remains
+    deterministic regardless of M15 content shuffles.
+    """
+
+    by_id = {location.id: location for location in locations}
+    for spec in DUNGEON_LEVELS:
+        level = by_id.get(spec.location_id)
+        if level is None:
+            # Unknown level id — skip silently so a future content
+            # tweak that drops a level doesn't crash the build. The
+            # M15 dungeon test asserts the required levels are
+            # actually populated.
+            continue
+        populate_dungeon_level(
+            world,
+            spec,
+            anchor_x=level.anchor.x,
+            anchor_y=level.anchor.y,
+            bounds_left=level.bounds.left,
+            bounds_top=level.bounds.top,
+            bounds_right=level.bounds.right,
+            bounds_bottom=level.bounds.bottom,
+        )
 
 
 def _populate_dungeon_boss(world: World, level: LocationSpec) -> None:

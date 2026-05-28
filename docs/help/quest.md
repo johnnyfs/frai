@@ -11,9 +11,19 @@ hook that connects the town, the dungeon, and the boss.
 | Step | Where               | What happens                                                                                        |
 | ---  | ---                 | ---                                                                                                 |
 | 1    | Town (tavern)       | Captain Tane offers the quest. Choose "Yes, I'll take it." to accept.                               |
-| 2    | Dungeon Level 3     | Defeat the kobold warlord (boss creature, glyph `K`). His corpse drops the golden chalice.          |
-| 3    | Anywhere            | Pick up the golden chalice (press `,` on the corpse tile). The quest flips to **completed**.        |
-| 4    | (automatic)         | Each party member receives 100 gold and 200 XP; the level-up modal pops if the threshold is crossed (M25). |
+| 2    | Dungeon Level 1     | Kobold scouts (glyph `k`, WANDER) guard the approach. Watch for a pressure plate trap on the path. |
+| 3    | Dungeon Level 2     | Kobold soldiers (glyph `k`, CHASE) hold the barracks. Higher-DC trap; locked strongbox with a longsword. |
+| 4    | Dungeon Level 3     | A kobold elite escort guards the throne. Defeat the warlord boss (`K`) — his corpse drops the golden chalice. |
+| 5    | Anywhere            | Pick up the golden chalice (press `,` on the corpse tile). The quest flips to **completed**.        |
+| 6    | (automatic)         | Each party member receives 100 gold and 200 XP; the level-up modal pops if the threshold is crossed (M25). |
+
+The dungeon levels escalate: scouts → soldiers → elite + boss; trap
+and lock DCs go 8/10 → 12/12 → 15/15; loot scales from a single
+healing potion + a few gp on L1 to two healing potions + 40 gp + the
+chalice in the warlord's strongbox on L3. The warlord himself is
+tuned so 4 level-1 PCs reliably win the fight in 4-6 rounds when they
+spend a healing potion or two; without burning resources he can down
+a PC, which is the M15 acceptance bar.
 
 The completion check fires the instant both conditions hold. Picking
 up the chalice off the corpse triggers it because the corpse loot
