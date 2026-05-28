@@ -1,9 +1,9 @@
 from dataclasses import dataclass
 from typing import TypeAlias
 
-from .character_creation import CharacterSheet
+from .character_creation import CharacterCreationState, CharacterSheet
 from .entity import EntityId
-from .modes import GameMode
+from .modes import UIMode
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,7 +20,15 @@ class EmitMessage:
 
 @dataclass(frozen=True, slots=True)
 class SetMode:
-    mode: GameMode
+    """Switch the active UI screen.
+
+    `character_creation_state` is only populated when switching to
+    `UIMode.character_creation`; other UI modes carry no per-screen
+    payload today.
+    """
+
+    mode: UIMode
+    character_creation_state: CharacterCreationState | None = None
 
 
 @dataclass(frozen=True, slots=True)

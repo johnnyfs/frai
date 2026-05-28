@@ -3,7 +3,7 @@ import sys
 
 from src.core.actions import MoveAttempt
 from src.core.effects import DamageEntity, KillEntity, MoveEntity, SetMode
-from src.core.modes import NormalMode
+from src.core.modes import UIMode
 from src.map.tiles import TileKind
 from tests.support.tiny_world import (
     SequenceRng,
@@ -115,7 +115,7 @@ def test_apply_world_effects_rejects_unsupported_effects() -> None:
     fixture = build_tiny_party_world()
 
     try:
-        apply_world_effects(fixture.world, [SetMode(NormalMode())])
+        apply_world_effects(fixture.world, [SetMode(UIMode.play)])
     except AssertionError as exc:
         assert "Unsupported test effect" in str(exc)
     else:

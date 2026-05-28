@@ -12,7 +12,7 @@ from src.core.character_creation import (
 )
 from src.core.dispatcher import DispatchResult
 from src.core.effects import EmitMessage, SetCharacterSheet, SetMode
-from src.core.modes import CharacterCreationMode, NormalMode
+from src.core.modes import UIMode
 from src.core.world import World
 
 
@@ -23,7 +23,12 @@ class StartSystem:
 
         if action.create:
             return DispatchResult(
-                effects=[SetMode(CharacterCreationMode(initial_character_creation_state()))],
+                effects=[
+                    SetMode(
+                        UIMode.character_creation,
+                        character_creation_state=initial_character_creation_state(),
+                    )
+                ],
                 cancel=True,
             )
 
@@ -32,7 +37,7 @@ class StartSystem:
             effects=[
                 SetCharacterSheet(world.player_entity(), sheet),
                 EmitMessage(f"YOLO: {sheet.race} {sheet.character_class}."),
-                SetMode(NormalMode()),
+                SetMode(UIMode.play),
             ],
             cancel=True,
         )

@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 import pytest
 
+from src.core.modes import PlayMode
 from src.core.time import (
     SECONDS_PER_HOUR,
     SECONDS_PER_LONG_REST,
@@ -144,7 +145,7 @@ def test_app_explore_move_ticks_world_clock() -> None:
     starting = app.world.clock.elapsed_seconds
     app.handle_key(ord("h"))
 
-    assert app.major_mode == "explore"
+    assert app.play_mode is PlayMode.explore
     assert app.world.clock.elapsed_seconds == starting + SECONDS_PER_TURN
 
 
@@ -154,7 +155,7 @@ def test_app_round_tick_advances_clock_after_party_turn() -> None:
     app = create_app()
     app.handle_key(ord("y"))
     app.voluntary_turn_based = True
-    app.major_mode = "turn"
+    app.play_mode = PlayMode.turn_based
     # Round tick fires only when the last party member has acted.
     app.active_party_index = len(app.party) - 1
     starting = app.world.clock.elapsed_seconds

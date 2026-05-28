@@ -3,7 +3,7 @@ from random import Random
 from src.core.actions import MoveAttempt, QuitConfirm, QuitRequest
 from src.core.config import PLAYFIELD_WIDTH, WORLD_HEIGHT, WORLD_WIDTH
 from src.core.effects import EmitMessage, MoveEntity, QuitGame, SetMode
-from src.core.modes import ConfirmQuitMode, NormalMode
+from src.core.modes import UIMode
 from src.map.room_builder import build_room_world
 from src.map.tiles import TileKind
 from src.systems.movement_system import MovementContextResolver, MovementSystem
@@ -42,10 +42,10 @@ def test_quit_system_mode_transitions() -> None:
 
     assert system.handle(QuitRequest(), built.world).effects == [
         EmitMessage("Quit? y/n"),
-        SetMode(ConfirmQuitMode()),
+        SetMode(UIMode.quit_confirm),
     ]
     assert system.handle(QuitConfirm(False), built.world).effects == [
-        SetMode(NormalMode()),
+        SetMode(UIMode.play),
         EmitMessage(""),
     ]
     assert system.handle(QuitConfirm(True), built.world).effects == [QuitGame()]

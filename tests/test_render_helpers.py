@@ -2,6 +2,7 @@ from src.app import create_app
 from src.core.components import Position
 from src.core.config import PLAYFIELD_HEIGHT, PLAYFIELD_WIDTH
 from src.core.entity import EntityId
+from src.core.modes import PlayMode
 from src.core.world import World
 from src.map.tiles import FOREST, OUTSIDE
 from src.systems.render_system import (
@@ -38,7 +39,7 @@ def test_status_line_labels_party_members_by_roster_order() -> None:
         companion,
         app.party,
         movement_used=4.25,
-        major_mode="battle",
+        play_mode=PlayMode.turn_based,
     ) == (
         f"Battle  Party Member 1 {character_class}  HP {stats.hit_points}/{stats.max_hit_points}  "
         f"AC {stats.armor_class}  Move 4.25/30"
@@ -57,7 +58,7 @@ def test_status_line_shows_voluntary_turn_mode_movement() -> None:
         companion,
         app.party,
         movement_used=3,
-        major_mode="turn",
+        play_mode=PlayMode.voluntary_turn,
     ) == (
         f"Turn  Party Member 1 {character_class}  HP {stats.hit_points}/{stats.max_hit_points}  "
         f"AC {stats.armor_class}  Move 3/30"

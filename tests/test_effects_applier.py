@@ -22,7 +22,7 @@ from src.core.effects import (
     UnlockEntity,
 )
 from src.core.effects_applier import EffectApplier
-from src.core.modes import GameOverMode, NormalMode
+from src.core.modes import UIMode
 
 
 def test_effect_applier_is_constructed_on_app() -> None:
@@ -71,7 +71,7 @@ def test_damage_entity_missing_stats_is_noop() -> None:
 def test_kill_entity_player_triggers_game_over_mode() -> None:
     app = create_app()
     app.apply_effects([KillEntity(app.player)])
-    assert isinstance(app.mode, GameOverMode)
+    assert app.ui_mode is UIMode.game_over
     # Player entity is preserved so the game-over screen still has context.
     assert app.world.positions.has(app.player)
 
@@ -148,11 +148,11 @@ def test_remove_blocker_missing_blocker_is_noop() -> None:
     app.apply_effects([RemoveBlocker(entity)])  # should not raise
 
 
-def test_set_mode_changes_mode() -> None:
+def test_set_mode_changes_ui_mode() -> None:
     app = create_app()
-    target = NormalMode()
-    app.apply_effects([SetMode(target)])
-    assert app.mode is target
+    app.apply_effects([SetMode(UIMode.play)])
+    assert app.ui_mode is UIMode.play
+    assert app.character_creation_state is None
 
 
 def test_quit_game_flips_running_flag() -> None:
