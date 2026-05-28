@@ -17,6 +17,7 @@ from src.core.components import (
     Presentation,
 )
 from src.core.character_creation import CharacterCreationState, CharacterSheet
+from src.core.conditions import tick_conditions
 from src.core.game_state import GameState
 from src.core.items import add_item, armor_item_id_for_name, weapon_item_id_for_name
 from src.core.effects import (
@@ -553,7 +554,7 @@ class App:
     def advance_party_turn(self) -> None:
         self.turn.end_turn_with_enemy_phase(
             run_enemy_phase=self.run_enemy_activations,
-            tick_round=lambda: self._tick_world_clock(SECONDS_PER_ROUND),
+            tick_round=self._tick_round_boundary,
         )
         # Vision is recomputed for whichever party member is now active.
         # `apply_effects` already refreshes after the enemy phase, but
@@ -563,8 +564,55 @@ class App:
     def _tick_world_clock(self, seconds: int) -> None:
         # Time-advance hook. Explore-mode moves/interactions tick a
         # minute; turn-based round ticks fire after the enemy phase.
-        # Rest and scheduled-effect expiration live in M34 and M24.
+        # M24 conditions: clock-driven (Minutes) expirations and the
+        # explore-mode "turn" boundary tick here so any clock advance
+        # — pickups, drops, interactions, single moves — gets a chance
+        # to expire buffs/debuffs. Round ticks for ROUNDS-policy
+        # conditions are routed through ``_tick_round_boundary`` from
+        # ``advance_party_turn``.
         advance_world_clock(self.world.clock, seconds, self.world.schedule)
+        self._tick_clock_conditions()
+        if seconds >= SECONDS_PER_TURN:
+            self._tick_turn_conditions()
+
+    def _tick_round_boundary(self) -> None:
+        """End-of-round bookkeeping: tick the clock and run round-tick
+        condition handlers (e.g. ``burning`` damage).
+
+        Round-boundary tick effects are dispatched through the normal
+        :class:`EffectApplier` so messages, damage, and death share the
+        same flow as any other gameplay effect.
+        """
+        self._tick_world_clock(SECONDS_PER_ROUND)
+        actors = self._condition_actors()
+        effects = tick_conditions(self.world, actors, boundary="round")
+        if effects:
+            self.apply_effects(effects)
+
+    def _tick_clock_conditions(self) -> None:
+        actors = self._condition_actors()
+        if not actors:
+            return
+        effects = tick_conditions(self.world, actors, boundary="clock")
+        if effects:
+            self.apply_effects(effects)
+
+    def _tick_turn_conditions(self) -> None:
+        actors = self._condition_actors()
+        if not actors:
+            return
+        effects = tick_conditions(self.world, actors, boundary="turn")
+        if effects:
+            self.apply_effects(effects)
+
+    def _condition_actors(self) -> list[EntityId]:
+        """Every entity that currently has a condition store.
+
+        Ticks fire only against actors that have something to tick, so
+        a world full of monsters doesn't iterate every store on every
+        clock advance.
+        """
+        return list(self.world.conditions.values.keys())
 
     def run_enemy_activations(self) -> None:
         combat = next(

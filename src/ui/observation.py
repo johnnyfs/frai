@@ -64,6 +64,24 @@ _EXIT_DIRECTIONS: tuple[tuple[int, int, str], ...] = (
 
 
 @dataclass(frozen=True, slots=True)
+class ConditionSummary:
+    """A single active condition, surfaced to the agentic playtester.
+
+    ``expires_at`` is the absolute ``WorldTime.elapsed_seconds`` at which
+    a clock-driven condition expires; ``None`` for tick-driven or
+    indefinite policies. ``rounds_remaining`` / ``turns_remaining`` are
+    populated for ROUNDS / TURNS policies respectively so a harness can
+    plan around the countdown without inspecting the duration payload.
+    """
+
+    kind: str
+    duration: str
+    expires_at: int | None = None
+    rounds_remaining: int = 0
+    turns_remaining: int = 0
+
+
+@dataclass(frozen=True, slots=True)
 class ActorSummary:
     """Summary of a single party member or visible actor."""
 
@@ -74,6 +92,7 @@ class ActorSummary:
     position: tuple[int, int]
     faction: str | None = None
     glyph: str | None = None
+    conditions: tuple[ConditionSummary, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -218,6 +237,7 @@ def _actor_to_dict(actor: ActorSummary | None) -> dict[str, Any] | None:
         "position": list(actor.position),
         "faction": actor.faction,
         "glyph": actor.glyph,
+        "conditions": [_condition_to_dict(c) for c in actor.conditions],
     }
 
 
@@ -232,6 +252,29 @@ def _actor_from_dict(payload: dict[str, Any] | None) -> ActorSummary | None:
         position=tuple(payload["position"]),  # type: ignore[arg-type]
         faction=payload.get("faction"),
         glyph=payload.get("glyph"),
+        conditions=tuple(
+            _condition_from_dict(item) for item in payload.get("conditions", [])
+        ),
+    )
+
+
+def _condition_to_dict(summary: ConditionSummary) -> dict[str, Any]:
+    return {
+        "kind": summary.kind,
+        "duration": summary.duration,
+        "expires_at": summary.expires_at,
+        "rounds_remaining": summary.rounds_remaining,
+        "turns_remaining": summary.turns_remaining,
+    }
+
+
+def _condition_from_dict(payload: dict[str, Any]) -> ConditionSummary:
+    return ConditionSummary(
+        kind=str(payload["kind"]),
+        duration=str(payload["duration"]),
+        expires_at=payload.get("expires_at"),
+        rounds_remaining=int(payload.get("rounds_remaining", 0)),
+        turns_remaining=int(payload.get("turns_remaining", 0)),
     )
 
 
@@ -332,6 +375,33 @@ def _build_actor_summary(app: Any, entity: EntityId) -> ActorSummary | None:
         position=(position.x, position.y),
         faction=faction.value if faction is not None else None,
         glyph=presentation.glyph if presentation is not None else None,
+        conditions=_conditions_for_actor(world, entity),
+    )
+
+
+def _conditions_for_actor(world: Any, entity: EntityId) -> tuple[ConditionSummary, ...]:
+    """Project the entity's :class:`ConditionStore` into the snapshot.
+
+    Returns an empty tuple when the actor has no store or no
+    conditions. Order matches storage order so a harness can rely on
+    the same condition appearing at the same index when polling
+    repeatedly without intervening changes.
+    """
+    store_holder = getattr(world, "conditions", None)
+    if store_holder is None:
+        return ()
+    store = store_holder.get(entity)
+    if store is None or not store.conditions:
+        return ()
+    return tuple(
+        ConditionSummary(
+            kind=condition.kind.value,
+            duration=condition.duration.kind.value,
+            expires_at=condition.expires_at,
+            rounds_remaining=condition.rounds_remaining,
+            turns_remaining=condition.turns_remaining,
+        )
+        for condition in store.conditions
     )
 
 
