@@ -19,6 +19,7 @@ from src.core.config import MIN_TERMINAL_HEIGHT, MIN_TERMINAL_WIDTH, PLAYFIELD_W
 from src.core.entity import EntityId
 from src.core.items import require_item
 from src.core.modes import PlayMode, UIMode
+from src.core.vision import PartyMemory, VisibilityState
 from src.core.world import World
 from src.systems.message_system import MORE_PROMPT, MessageState
 from src.ui.layout import Layout
@@ -76,6 +77,7 @@ def render(
     movement_total: float = 30.0,
     play_mode: PlayMode = PlayMode.explore,
     character_creation_state: CharacterCreationState | None = None,
+    memory: PartyMemory | None = None,
 ) -> None:
     screen.clear()
     layout = Layout(width=screen.width, height=screen.height)
@@ -121,7 +123,7 @@ def render(
         for viewport_column in range(layout.playfield_width):
             world_x = viewport_x + viewport_column
             screen_x = layout.origin_x + viewport_column
-            glyph = _presentation_for(observer, world, world_x, world_y, party)
+            glyph = _projected_presentation(observer, world, world_x, world_y, party, memory)
             screen.draw_char(screen_x, screen_y, glyph.char)
 
     screen.print_line(
@@ -169,6 +171,36 @@ def _presentation_for(
         render_token=tile.render_token,
         color_token=tile.color_token,
     )
+
+
+def _projected_presentation(
+    observer: EntityId,
+    world: World,
+    x: int,
+    y: int,
+    party: Sequence[EntityId],
+    memory: PartyMemory | None,
+) -> Glyph:
+    """Project a tile through party memory + visible set.
+
+    With ``memory=None`` the renderer falls back to the omniscient
+    behaviour (used by tests/UI paths that have not yet wired vision in).
+    With a memory provided, unknown tiles render as a blank space,
+    remembered tiles render their last-seen snapshot (no live entities),
+    and visible tiles render the live world.
+    """
+    if memory is None:
+        return _presentation_for(observer, world, x, y, party)
+    state = memory.state_at(x, y)
+    if state is VisibilityState.VISIBLE:
+        return _presentation_for(observer, world, x, y, party)
+    if state is VisibilityState.REMEMBERED:
+        remembered = memory.tiles.get((x, y))
+        if remembered is None:
+            return Glyph(" ")
+        glyph_char = remembered.features[0].glyph if remembered.features else remembered.glyph
+        return Glyph(glyph_char)
+    return Glyph(" ")
 
 
 def _party_glyph(entity: EntityId, party: Sequence[EntityId]) -> str | None:

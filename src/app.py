@@ -30,6 +30,7 @@ from src.core.modes import PlayMode, UIMode, is_turn_based_play, play_mode_for_s
 from src.core.party import CompanionDefinition, companion_definitions_for_player_class
 from src.core.time import SECONDS_PER_ROUND, SECONDS_PER_TURN, advance as advance_world_clock
 from src.core.turns import ActivationState
+from src.core.vision import PartyMemory
 from src.core.world import World
 from src.map.room_builder import BuiltRoom, build_room_world
 from src.systems.game_over_system import GameOverSystem
@@ -50,6 +51,7 @@ from src.systems.obstruction_system import ObstructionSystem
 from src.systems.quit_system import QuitSystem
 from src.systems.render_system import render
 from src.systems.start_system import StartSystem, yolo_sheet
+from src.systems.vision_system import VisionSystem
 from src.ui.screen import Screen
 
 
@@ -68,10 +70,21 @@ class App:
     facing: tuple[int, int] = (1, 0)
     voluntary_turn_based: bool = False
     running: bool = True
+    memory: PartyMemory = field(default_factory=PartyMemory)
+    vision: VisionSystem = field(default_factory=VisionSystem)
     effect_applier: EffectApplier = field(init=False)
 
     def __post_init__(self) -> None:
         self.effect_applier = EffectApplier(self)
+        self.refresh_vision()
+
+    def refresh_vision(self) -> None:
+        """Recompute the party visible set and update memory.
+
+        Called after movement, door changes, and party rotation. Pure
+        projection over current world state — no effects emitted.
+        """
+        self.vision.tick(self.world, self.party, self.memory)
 
     @property
     def focus(self) -> EntityId:
@@ -99,6 +112,7 @@ class App:
 
     def apply_effects(self, effects: list[Effect]) -> None:
         self.effect_applier.apply_all(effects)
+        self.refresh_vision()
 
     def handle_key(self, key: int) -> None:
         if self.messages.awaiting_more and self.ui_mode is not UIMode.game_over:
@@ -238,6 +252,7 @@ class App:
             if _can_take_turn(self.world, self.party[index]):
                 self.active_party_index = index
                 self.activation.reset_for_activation()
+                self.refresh_vision()
                 return
         if self.play_mode is PlayMode.turn_based:
             self.run_enemy_activations()
@@ -246,6 +261,7 @@ class App:
             if _can_take_turn(self.world, entity):
                 self.active_party_index = index
                 self.activation.reset_for_activation()
+                self.refresh_vision()
                 return
 
     def _tick_world_clock(self, seconds: int) -> None:
@@ -278,6 +294,8 @@ class App:
         self.ui_mode = UIMode.start
         self.character_creation_state = None
         self.messages.emit("")
+        self.memory = PartyMemory()
+        self.refresh_vision()
 
 
 def create_app(
@@ -488,6 +506,7 @@ def _run_curses(stdscr: curses.window) -> None:
             app.activation.movement_total,
             app.play_mode,
             app.character_creation_state,
+            memory=app.memory,
         )
         key = stdscr.getch()
         if key == curses.KEY_RESIZE:
