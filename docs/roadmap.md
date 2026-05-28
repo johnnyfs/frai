@@ -67,8 +67,8 @@ Architecture direction:
 | M1 | Abstraction discipline pass | M0 | lead / `agent/m1-abstraction-pass` | complete | `uv run pytest` | #1 |
 | M2 | Test harness and tiny world fixtures | M0 | Cicero / `agent/m2-test-fixtures` | complete | `uv run pytest` | #2 |
 | M3 | Voluntary turn-based mode | M1, M2 | lead / `agent/m3-voluntary-turn-mode` | complete | `uv run pytest` | #3 |
-| M4 | Action economy expansion | M1, M2 | unassigned | pending | action/move/bonus/reaction reset tests | pending |
-| M5 | Race/class creation foundation | M1, M2 | unassigned | pending | all race/class level-1 creation tests | pending |
+| M4 | Action economy expansion | M1, M2 | lead / `agent/m4-action-economy` | complete | `uv run pytest` | #6 |
+| M5 | Race/class creation foundation | M1, M2 | Harvey / `agent/m5-race-class-foundation` | complete | `uv run pytest` | #5 |
 | M6 | Party composition/adaptive companions | M5 | unassigned | pending | coverage logic tests | pending |
 | M7 | Map/terrain model expansion | M1, M2 | unassigned | pending | terrain movement/color projection tests | pending |
 | M8 | World content skeleton | M7 | unassigned | pending | connected town/forest/dungeon tests | pending |
