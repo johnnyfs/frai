@@ -71,14 +71,16 @@ class MovementSystem:
 
 
 def _hostile_target(actor: EntityId, entities: list[EntityId], world: World) -> EntityId | None:
-    actor_faction = world.factions.get(actor)
-    if actor_faction is None:
-        return None
+    """First entity at the bump destination that ``actor`` considers hostile.
+
+    Delegates to the awareness predicate so the bump-to-attack rule
+    matches the rest of the engine's faction model (M28).
+    """
+    from src.systems.awareness_system import is_hostile_to
+
     for entity in entities:
-        target_faction = world.factions.get(entity)
-        if target_faction is not None and target_faction.value != actor_faction.value:
-            if world.combat_stats.has(entity):
-                return entity
+        if is_hostile_to(world, actor, entity):
+            return entity
     return None
 
 

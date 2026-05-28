@@ -67,6 +67,7 @@ from src.core.effects import (
     SpawnEntity,
 )
 from src.core.entity import EntityId
+from src.core.factions import FactionId
 from src.core.items import ITEMS
 from src.core.world import World
 
@@ -99,7 +100,7 @@ def _spawn_kobold(world: World, x: int, y: int) -> EntityId:
     world.positions.add(entity, Position(x=x, y=y))
     world.presentations.add(entity, Presentation("k"))
     world.names.add(entity, Name("kobold"))
-    world.factions.add(entity, Faction("enemy"))
+    world.factions.add(entity, Faction(FactionId.DUNGEON.value))
     world.blockers.add(entity, BlocksMovement("occupied"))
     world.combat_stats.add(
         entity,
@@ -123,7 +124,7 @@ def _spawn_goblin(world: World, x: int, y: int) -> EntityId:
     world.positions.add(entity, Position(x=x, y=y))
     world.presentations.add(entity, Presentation("g"))
     world.names.add(entity, Name("goblin"))
-    world.factions.add(entity, Faction("enemy"))
+    world.factions.add(entity, Faction(FactionId.DUNGEON.value))
     world.blockers.add(entity, BlocksMovement("occupied"))
     world.combat_stats.add(
         entity,

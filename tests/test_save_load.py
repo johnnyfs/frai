@@ -520,15 +520,20 @@ def _pick_open_direction(app, *, upper: bool = False) -> tuple[int, int, int]:
 
 
 def _strip_hostiles(world) -> None:
-    """Remove every faction-not-player entity with combat stats.
+    """Remove every non-party entity with combat stats.
 
     Used by tests that need to drop into explore mode without rebuilding
-    the world from scratch.
+    the world from scratch. Recognizes both the canonical M28
+    ``player_party`` faction id and the legacy ``"player"`` alias so the
+    helper works against either fixture flavor.
     """
+    from src.core.factions import FactionId
+
+    party_values = {FactionId.PLAYER_PARTY.value, "player"}
     to_remove = []
     for entity in list(world.factions.values.keys()):
         faction = world.factions.require(entity)
-        if faction.value != "player" and world.combat_stats.has(entity):
+        if faction.value not in party_values and world.combat_stats.has(entity):
             to_remove.append(entity)
     for entity in to_remove:
         world.remove_entity(entity)

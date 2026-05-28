@@ -2,6 +2,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from .character_creation import CharacterSheet
+from .entity import EntityId
+from .factions import AggroOverrideList  # noqa: F401  re-exported for save/load
 from .loot import DropTable
 
 
@@ -110,7 +112,22 @@ class Shop:
 
 @dataclass(slots=True)
 class Faction:
+    """Which faction an entity belongs to.
+
+    ``value`` is the canonical faction id (see ``FactionId`` in
+    ``src/core/factions.py``). Pre-M28 saves stored raw strings like
+    ``"player"`` and ``"enemy"``; those are aliased to ``player_party``
+    and ``dungeon`` at lookup time so legacy saves keep loading.
+
+    ``summoner`` lets a companion / pet / familiar / summon inherit its
+    effective relations from another entity. When set, the awareness
+    system resolves the faction by walking the chain to the summoner so
+    a fireball-elemental summoned by the player is always treated as
+    PLAYER_PARTY-aligned even if its own ``value`` is something else.
+    """
+
     value: str
+    summoner: EntityId | None = None
 
 
 @dataclass(slots=True)

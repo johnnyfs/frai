@@ -244,27 +244,27 @@ def _first_visible_hostile(
     somewhere" do not interrupt; only ones in line of sight do.
     """
 
+    from src.systems.awareness_system import is_hostile_to
+
     visible = getattr(getattr(host, "memory", None), "visible", frozenset())
     if not visible:
         return None
     world = host.world
-    party_factions = {
-        faction.value
-        for entity in party_members
-        if (faction := world.factions.get(entity)) is not None
-    }
     for entity, stats in world.combat_stats.values.items():
         if stats.hit_points <= 0:
+            continue
+        if entity == actor or entity in party_members:
             continue
         position = world.positions.get(entity)
         if position is None:
             continue
         if (position.x, position.y) not in visible:
             continue
-        faction = world.factions.get(entity)
-        if faction is None or faction.value in party_factions:
-            continue
-        if entity == actor:
-            continue
-        return entity
+        # Autowalk interrupts on hostility from either direction so an
+        # aggro'd shopkeeper (HOSTILE→party via override) still stops
+        # the party even though town remains neutral globally.
+        if any(is_hostile_to(world, member, entity) for member in party_members):
+            return entity
+        if any(is_hostile_to(world, entity, member) for member in party_members):
+            return entity
     return None

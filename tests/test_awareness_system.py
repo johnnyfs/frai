@@ -6,7 +6,6 @@ from src.systems.awareness_system import (
 from tests.support.tiny_world import (
     add_actor,
     add_enemy,
-    add_party_member,
     build_tiny_map,
     build_tiny_party_world,
 )
@@ -51,17 +50,16 @@ def test_hostiles_requiring_battle_ignores_dead_hostiles() -> None:
 
 
 def test_hostiles_requiring_battle_treats_shared_faction_as_non_hostile() -> None:
-    """A town NPC sharing a faction with the party is not hostile."""
+    """A neutral-faction NPC does not trigger turn-based mode (M28)."""
     fixture = build_tiny_party_world()
-    # Add a "townsfolk" NPC and a party member that also belongs to "townsfolk".
-    townsfolk = add_party_member(fixture.world, 3, 3, name="guard", glyph="t")
-    fixture.world.factions.require(townsfolk).value = "townsfolk"
+    # Under the M28 faction model a townsfolk NPC is just ``Faction(TOWN)``;
+    # the default relation table maps ``player_party ↔ town`` to neutral,
+    # so the baker should not be returned as a hostile even though they
+    # belong to a different faction than the party.
     npc = add_enemy(fixture.world, 4, 2, name="baker", glyph="b")
-    fixture.world.factions.require(npc).value = "townsfolk"
+    fixture.world.factions.require(npc).value = "town"
 
-    party = fixture.party + [townsfolk]
-
-    assert hostiles_requiring_battle(fixture.world, party) == []
+    assert hostiles_requiring_battle(fixture.world, fixture.party) == []
 
 
 def test_is_hostile_to_respects_faction_difference() -> None:

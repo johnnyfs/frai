@@ -50,6 +50,15 @@ restored = Observation.from_dict(payload)
 
 `play_mode` is one of: `explore`, `turn_based`, `voluntary_turn`.
 
+### Faction values
+
+The `faction` field on `ActorSummary` and `VisibleEntity` carries the
+canonical M28 `FactionId` value (`player_party`, `town`, `dungeon`,
+`wildlife`) for content spawned through the post-M28 path. Pre-M28
+fixtures and saves may still emit the legacy strings `player` and
+`enemy`; both are resolved to the same relations internally. See
+`docs/help/factions.md` for the full catalog and relation matrix.
+
 ## Visibility
 
 The visible-entity list is filtered through M19 party memory:

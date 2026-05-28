@@ -192,14 +192,15 @@ def _nearest_controlled_target(
 
 
 def _is_hostile(actor: EntityId, target: EntityId, world: World) -> bool:
-    actor_faction = world.factions.get(actor)
-    target_faction = world.factions.get(target)
-    return (
-        actor_faction is not None
-        and target_faction is not None
-        and actor_faction.value != target_faction.value
-        and world.combat_stats.has(target)
-    )
+    """Whether ``actor`` should attack ``target`` this turn.
+
+    Delegates to the awareness predicate so the M28 faction relations
+    (overrides, summoner inheritance, default table) apply to NPC turn
+    decisions the same way they do to player bumps.
+    """
+    from src.systems.awareness_system import is_hostile_to
+
+    return is_hostile_to(world, actor, target)
 
 
 def _apply_turn_effects(

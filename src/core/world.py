@@ -30,6 +30,7 @@ from src.core.components import (
 )
 from src.core.conditions import ConditionStore
 from src.core.entity import EntityId
+from src.core.factions import AggroOverride, AggroOverrideList, FactionId, Relation
 from src.core.loot import DropTable, GoldDrop, ItemDrop
 from src.core.time import Schedule, ScheduledEvent, WorldTime
 from src.map.tiles import OUTSIDE, Tile, tile_from_token, tile_token
@@ -101,6 +102,9 @@ class World:
     loot_drops: ComponentStore[LootDrop] = field(default_factory=lambda: ComponentStore({}))
     god_modes: ComponentStore[GodMode] = field(default_factory=lambda: ComponentStore({}))
     conditions: ComponentStore[ConditionStore] = field(
+        default_factory=lambda: ComponentStore({})
+    )
+    aggro_overrides: ComponentStore[AggroOverrideList] = field(
         default_factory=lambda: ComponentStore({})
     )
     clock: WorldTime = field(default_factory=WorldTime)
@@ -178,6 +182,7 @@ class World:
             ("loot_drops", self.loot_drops),
             ("god_modes", self.god_modes),
             ("conditions", self.conditions),
+            ("aggro_overrides", self.aggro_overrides),
         ]
 
     def name_for(self, entity: EntityId) -> str:
@@ -312,6 +317,18 @@ def _component_to_dict(component: Any) -> Any:
                 for stack in component.items
             ],
         }
+    if isinstance(component, Faction):
+        payload: dict[str, Any] = {"value": component.value}
+        if component.summoner is not None:
+            payload["summoner"] = int(component.summoner)
+        return payload
+    if isinstance(component, AggroOverrideList):
+        return {
+            "overrides": [
+                {"target": entry.target.value, "relation": entry.relation.value}
+                for entry in component.overrides
+            ],
+        }
     if is_dataclass(component):
         return asdict(component)
     # Fallback: best-effort string conversion. Should never trip in
@@ -369,7 +386,9 @@ def _component_from_dict(name: str, payload: Any) -> Any:
     if name == "shops":
         return Shop(**_filtered(Shop, payload))
     if name == "factions":
-        return Faction(**_filtered(Faction, payload))
+        summoner_raw = payload.get("summoner") if isinstance(payload, dict) else None
+        summoner = EntityId(int(summoner_raw)) if summoner_raw is not None else None
+        return Faction(value=str(payload.get("value", "")), summoner=summoner)
     if name == "doors":
         return Door(**_filtered(Door, payload))
     if name == "locks":
@@ -385,6 +404,16 @@ def _component_from_dict(name: str, payload: Any) -> Any:
     if name == "god_modes":
         # Never rebuilt — see GodMode docs.
         return None
+    if name == "aggro_overrides":
+        entries: list[AggroOverride] = []
+        for entry in payload.get("overrides", []) if isinstance(payload, dict) else []:
+            target = FactionId.from_value(entry.get("target"))
+            try:
+                relation = Relation(entry.get("relation", Relation.HOSTILE.value))
+            except ValueError:
+                relation = Relation.HOSTILE
+            entries.append(AggroOverride(target=target, relation=relation))
+        return AggroOverrideList(overrides=entries)
     return None
 
 

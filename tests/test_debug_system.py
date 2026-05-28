@@ -97,12 +97,17 @@ def test_spawn_kobold_creates_hostile(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("FRAI_DEV", "1")
     app = create_app()
     app.ui_mode = UIMode.play
+    # Spawned dungeon monsters carry FactionId.DUNGEON (M28); count those
+    # rather than the legacy "enemy" string.
+    from src.core.factions import FactionId
+
+    dungeon_value = FactionId.DUNGEON.value
     enemy_count_before = sum(
-        1 for faction in app.world.factions.values.values() if faction.value == "enemy"
+        1 for faction in app.world.factions.values.values() if faction.value == dungeon_value
     )
     app.run_debug_command("spawn kobold")
     enemy_count_after = sum(
-        1 for faction in app.world.factions.values.values() if faction.value == "enemy"
+        1 for faction in app.world.factions.values.values() if faction.value == dungeon_value
     )
     assert enemy_count_after == enemy_count_before + 1
     new_kobolds = [

@@ -28,6 +28,7 @@ from src.core.effects import (
 )
 from src.core.effects_applier import EffectApplier
 from src.core.entity import EntityId
+from src.core.factions import FactionId
 from src.core.actions import (
     Action,
     DropItemAttempt,
@@ -801,7 +802,7 @@ def _add_companion(
     world.blockers.add(entity, BlocksMovement("occupied"))
     world.player_controlled.add(entity, PlayerControlled())
     world.names.add(entity, Name(definition.name))
-    world.factions.add(entity, Faction("player"))
+    world.factions.add(entity, Faction(FactionId.PLAYER_PARTY.value))
     _assign_character_sheet(world, entity, definition.sheet)
     return entity
 
@@ -851,19 +852,19 @@ def _assign_character_sheet(world: World, entity: EntityId, sheet: CharacterShee
 
 
 def _hostile_target_for_move(world: World, action: MoveAttempt) -> EntityId | None:
+    """Return the hostile entity (if any) at ``action``'s destination tile.
+
+    Routes through the awareness predicate so the App's pre-dispatch
+    "bump turns into an attack" check honors the M28 faction model
+    (overrides, summoner inheritance, relation table).
+    """
+    from src.systems.awareness_system import is_hostile_to
+
     position = world.positions.require(action.actor)
     destination_x = position.x + action.dx
     destination_y = position.y + action.dy
-    actor_faction = world.factions.get(action.actor)
-    if actor_faction is None:
-        return None
     for entity in world.entities_at(destination_x, destination_y):
-        target_faction = world.factions.get(entity)
-        if (
-            target_faction is not None
-            and target_faction.value != actor_faction.value
-            and world.combat_stats.has(entity)
-        ):
+        if is_hostile_to(world, action.actor, entity):
             return entity
     return None
 
