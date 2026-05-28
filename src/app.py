@@ -100,6 +100,24 @@ class App:
     def apply_effects(self, effects: list[Effect]) -> None:
         self.effect_applier.apply_all(effects)
 
+    def run_debug_command(self, command: str) -> None:
+        """Execute a single debug command line (M33).
+
+        Routes through `src.systems.debug_system.run_debug_command` so the
+        resulting effects are applied via the standard `EffectApplier`. The
+        dev-mode gate (`FRAI_DEV` env var) is enforced inside the debug
+        system; outside dev mode this method emits a refusal message and
+        otherwise does nothing.
+
+        The playtest harness (M37) and the future debug-prompt modal both
+        call this entry point. We deliberately do not wire a curses-level
+        prompt key yet — the mode split (M47) is still in flight and we'd
+        rather not add another `NormalMode` branch right now.
+        """
+        from src.systems.debug_system import run_debug_command as _run
+
+        self.apply_effects(_run(command, self))
+
     def handle_key(self, key: int) -> None:
         if self.messages.awaiting_more and self.ui_mode is not UIMode.game_over:
             self.messages.advance()

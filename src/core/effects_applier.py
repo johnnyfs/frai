@@ -17,12 +17,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol
 
-from src.core.components import Inventory
+from src.core.components import GodMode, Inventory
 from src.core.effects import (
     DamageEntity,
     DisarmTrap,
     Effect,
     EmitMessage,
+    GrantGold,
+    GrantItem,
     KillEntity,
     MoveEntity,
     OpenEntity,
@@ -30,7 +32,9 @@ from src.core.effects import (
     RemoveBlocker,
     RestartGame,
     SetCharacterSheet,
+    SetGodMode,
     SetMode,
+    SpawnEntity,
     TriggerTrap,
     UnlockEntity,
 )
@@ -125,6 +129,20 @@ class EffectApplier:
             _apply_set_mode(self._host, effect)
             return
 
+        # Debug (M33)
+        if isinstance(effect, SetGodMode):
+            _apply_set_god_mode(self._host, effect)
+            return
+        if isinstance(effect, SpawnEntity):
+            _apply_spawn_entity(self._host, effect)
+            return
+        if isinstance(effect, GrantGold):
+            _apply_grant_gold(self._host, effect)
+            return
+        if isinstance(effect, GrantItem):
+            _apply_grant_item(self._host, effect)
+            return
+
         # Messages
         if isinstance(effect, EmitMessage):
             messages.append(effect.text)
@@ -149,7 +167,16 @@ def _apply_move_entity(host: "App", effect: MoveEntity) -> None:
 
 
 def _apply_damage_entity(host: "App", effect: DamageEntity) -> None:
-    """Pure world mutation. Missing combat_stats is a no-op (preserved behavior)."""
+    """Pure world mutation. Missing combat_stats is a no-op (preserved behavior).
+
+    Entities with an enabled `GodMode` component (M33 debug `god on`) ignore
+    all damage. This is intentionally checked here, not in the combat system,
+    so anything that emits `DamageEntity` (combat, traps, future effects) is
+    automatically respected.
+    """
+    god = host.world.god_modes.get(effect.entity)
+    if god is not None and god.enabled:
+        return
     stats = host.world.combat_stats.get(effect.entity)
     if stats is not None:
         stats.hit_points = max(0, stats.hit_points - effect.amount)
@@ -262,3 +289,52 @@ def _apply_set_mode(host: "App", effect: SetMode) -> None:
         host.character_creation_state = effect.character_creation_state
     else:
         host.character_creation_state = None
+
+
+# ---------------------------------------------------------------------------
+# DebugEffects (M33)
+# ---------------------------------------------------------------------------
+
+
+def _apply_set_god_mode(host: "App", effect: SetGodMode) -> None:
+    """Toggle the GodMode component on the target.
+
+    `enabled=True` adds (or refreshes) a GodMode; `enabled=False` clears it.
+    """
+    store = host.world.god_modes
+    if effect.enabled:
+        store.add(effect.entity, GodMode(enabled=True))
+    else:
+        store.values.pop(effect.entity, None)
+
+
+def _apply_spawn_entity(host: "App", effect: SpawnEntity) -> None:
+    """Materialize a debug-catalog entity at (x, y).
+
+    The catalog lives in `src.systems.debug_system`; we import lazily so the
+    core effects module stays free of system-layer imports.
+    """
+    from src.systems.debug_system import DEBUG_SPAWN_CATALOG
+
+    spawner = DEBUG_SPAWN_CATALOG.get(effect.kind)
+    if spawner is None:
+        return
+    spawner(host.world, effect.x, effect.y)
+
+
+def _apply_grant_gold(host: "App", effect: GrantGold) -> None:
+    """Add gold to `entity`'s inventory; no-op if none."""
+    inventory = host.world.inventories.get(effect.entity)
+    if inventory is None:
+        return
+    inventory.gold += effect.amount
+
+
+def _apply_grant_item(host: "App", effect: GrantItem) -> None:
+    """Add `quantity` of `item_id` to `entity`'s inventory; no-op if no inventory."""
+    from src.core.items import add_item
+
+    inventory = host.world.inventories.get(effect.entity)
+    if inventory is None:
+        return
+    add_item(inventory, effect.item_id, quantity=effect.quantity)
