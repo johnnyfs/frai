@@ -105,7 +105,7 @@ Architecture direction:
 | M30 | Loot containers, corpses, and dropped items        | M9, M12                     | #20               | unassigned |
 | M31 | Command help and keybinding screen                 | M17                         | #28               | unassigned |
 | M32 | Error and message discipline                       | M17                         | #18               | unassigned |
-| M33 | Debug/dev tools                                    | M2                          | #12               | unassigned |
+| M33 | Debug/dev tools                                    | M2                          | #55               | complete   |
 | M34 | Rest system and shelter zones                      | M4, M7, M11, M27            | #21               | unassigned |
 | M35 | Agent-readable observation mode                    | (foundation)                | #13               | unassigned |
 | M36 | Command scripting and agent input mode             | M22, M35                    | #29               | unassigned |
