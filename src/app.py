@@ -52,6 +52,7 @@ from src.core.entity import EntityId
 from src.core.factions import FactionId
 from src.core.actions import (
     Action,
+    AttackAttempt,
     CastSpellAttempt,
     CloseRestMenu,
     CloseSpellMenu,
@@ -63,10 +64,12 @@ from src.core.actions import (
     LevelUpConfirm,
     LevelUpDismiss,
     MoveAttempt,
+    PerceptionAttempt,
     PickupAttempt,
     RestMenuChoice,
     RestMenuRequest,
     RosterRequest,
+    SneakAttempt,
     SpellMenuChoice,
     SpellMenuRequest,
     ToggleTurnMode,
@@ -408,6 +411,20 @@ class App:
     def active_actor(self) -> EntityId:
         return self.turn.current_actor(self.player)
 
+    def _is_active_actor_incapacitated(self) -> bool:
+        """True iff the currently-active actor carries the SRD
+        ``unconscious`` condition.
+
+        Used by the M29 input gate (#120) to refuse action-producing
+        keys while the active party leader is downed. Mode-change keys
+        (inventory, help, roster, character sheet, end-turn, toggle
+        turn mode, quit) are still allowed so the player can swap to a
+        teammate or pass the turn.
+        """
+        from src.core.death_saves import is_unconscious
+
+        return is_unconscious(self.world, self.active_actor())
+
     @property
     def current_play_mode(self) -> PlayMode:
         """PlayMode is only meaningful while UIMode == play.
@@ -511,6 +528,30 @@ class App:
             self._handle_roster_key(key)
             return
         self.sync_play_mode()
+        # M29 incapacitation gate (#120): an unconscious active actor
+        # cannot move, attack, examine, cast, pick up, drop, interact,
+        # sneak, perceive, or open a rest menu. UI modals (inventory,
+        # help, roster, character sheet) and turn-flow keys (space to
+        # end turn, ``t`` to toggle mode, ``q`` to quit) remain
+        # accessible so a downed party leader can still pass control to
+        # a teammate who might heal them. Autowalk and the inline
+        # inventory ``d`` drop key are gated alongside the action
+        # surface in ``map_key``.
+        if self._is_active_actor_incapacitated():
+            if self.ui_mode is UIMode.play and self.autowalk is None:
+                if _AUTOWALK_KEYS.get(key) is not None:
+                    self.apply_effects([EmitMessage("You are unconscious.")])
+                    self.sync_play_mode()
+                    return
+            if self.ui_mode is UIMode.inventory and 0 <= key <= 255:
+                try:
+                    pressed_incap = chr(key).lower()
+                except ValueError:
+                    pressed_incap = ""
+                if pressed_incap == "d":
+                    self.apply_effects([EmitMessage("You are unconscious.")])
+                    self.sync_play_mode()
+                    return
         # Autowalk (M22): a capital direction key initiates a repeated
         # move in that direction. The detection happens before
         # ``map_key`` lowercases the input. Only valid while we're in
@@ -543,6 +584,12 @@ class App:
             self.active_actor(),
             character_creation_state=self.character_creation_state,
         )
+        if self._is_active_actor_incapacitated() and _action_blocked_by_incapacitation(
+            action
+        ):
+            self.apply_effects([EmitMessage("You are unconscious.")])
+            self.sync_play_mode()
+            return
         if isinstance(action, EndTurn) and self.ui_mode is UIMode.play:
             if is_turn_based_play(self.turn.play_mode):
                 self.advance_party_turn()
@@ -1788,7 +1835,14 @@ class App:
         deterministically. Uses ``self.loot_rng`` as the d20 source so
         seeded fixtures stay reproducible. Stable PCs (3 successes) are
         skipped — they wait for a rest to revive.
+
+        Skipped entirely once the UI has flipped to ``game_over`` —
+        belt-and-braces against #119: if anything ever leaves a stale
+        ``DeathSaves`` row attached to a dead PC, we still won't roll
+        a fourth save on the game-over screen.
         """
+        if self.ui_mode is UIMode.game_over:
+            return
         from src.core.death_saves import is_dying, roll_death_save
 
         downed = [
@@ -2135,6 +2189,44 @@ _AUTOWALK_KEYS: dict[int, tuple[int, int]] = {
 def _can_take_turn(world: World, entity: EntityId) -> bool:
     stats = world.combat_stats.get(entity)
     return world.positions.has(entity) and (stats is None or stats.hit_points > 0)
+
+
+# Action types that an unconscious active actor cannot perform (#120).
+# Every entry consumes the actor's turn (move, attack, examine, cast,
+# interact, pick up, drop, sneak, perceive, open the rest menu) and
+# therefore must be refused while the active actor carries the SRD
+# ``unconscious`` condition. UI-modal actions (inventory, help, roster,
+# spell-menu close, rest-menu close, level-up modal, end-turn, toggle
+# turn mode, quit) are deliberately omitted: a downed party leader must
+# still be able to pass the turn or open the roster so a teammate can
+# revive them.
+_INCAPACITATED_BLOCKED_ACTIONS: tuple[type, ...] = (
+    MoveAttempt,
+    AttackAttempt,
+    InteractAttempt,
+    PickupAttempt,
+    DropItemAttempt,
+    ExamineRequest,
+    CastSpellAttempt,
+    SpellMenuRequest,
+    SneakAttempt,
+    PerceptionAttempt,
+    RestMenuRequest,
+)
+
+
+def _action_blocked_by_incapacitation(action: Action | None) -> bool:
+    """True iff ``action`` is a turn-consuming action surface (#120).
+
+    Used by the M29 incapacitation gate in :meth:`App.handle_key` so an
+    unconscious active actor sees a clear "You are unconscious." refusal
+    on any attack/move/examine/cast/interact/pickup/drop/sneak/perceive/
+    rest-menu key. ``None`` (an unmapped key) is not blocked — the key
+    was already a no-op and we let it pass through silently.
+    """
+    if action is None:
+        return False
+    return isinstance(action, _INCAPACITATED_BLOCKED_ACTIONS)
 
 
 def _setup_curses(stdscr: curses.window) -> None:

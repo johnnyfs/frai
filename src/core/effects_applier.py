@@ -317,8 +317,16 @@ def _apply_kill_entity(host: "App", effect: KillEntity) -> None:
     reduces HP to 0, and the kill handler reinterprets the effect
     against the actor's current state. Real deaths (death-save failure
     tally, massive damage) bypass this guard because the death-save
-    driver / damage handler pop the DeathSaves row before emitting
-    KillEntity. NPC enemies follow the legacy hard-kill path.
+    failure tally drives saves to ``FAILURES_TO_DIE`` before the
+    KillEntity is emitted. NPC enemies follow the legacy hard-kill
+    path.
+
+    When a PC dies for real we drop the ``DeathSaves`` row and end the
+    SRD ``unconscious`` condition before flipping to game-over. Leaving
+    those artefacts attached caused the round-tick driver to keep
+    rolling death saves on the corpse (#119) — saves stacked past
+    ``FAILURES_TO_DIE`` and a save-mid-game-over wrote the zombie state
+    to disk.
     """
     from src.core.death_saves import FAILURES_TO_DIE
 
@@ -330,6 +338,13 @@ def _apply_kill_entity(host: "App", effect: KillEntity) -> None:
         # defends against a stray double-kill from a system that emits
         # both DamageEntity and KillEntity in the same batch.
         return
+    if is_pc:
+        # Tear down the downed-state bookkeeping before the kill is
+        # finalised. The actor is dead — the DeathSaves row and the
+        # unconscious condition should not persist into game-over (or,
+        # for non-player party members, onto an entity that's about to
+        # be removed but whose stores would otherwise leak the rows).
+        _clear_downed_state(host, effect.entity)
     if effect.entity == host.player:
         host.ui_mode = UIMode.game_over
         host.character_creation_state = None
@@ -406,6 +421,24 @@ def _living_party_members(host: "App") -> list:
             continue
         living.append(member)
     return living
+
+
+def _clear_downed_state(host: "App", entity: EntityId) -> None:
+    """Drop the ``DeathSaves`` row and end the ``unconscious`` condition.
+
+    Called from ``_apply_kill_entity`` when a player-controlled actor
+    dies for real (failure tally reached ``FAILURES_TO_DIE`` or massive
+    damage). Without this teardown the round-boundary death-save driver
+    keeps rolling on the dead actor (#119), and the unconscious tag
+    persists into the game-over snapshot or onto a soon-to-be-removed
+    party member.
+    """
+    from src.core.conditions import ConditionKind, end_condition
+
+    host.world.death_saves.values.pop(entity, None)
+    store = host.world.conditions.get(entity)
+    if store is not None and store.has(ConditionKind.UNCONSCIOUS):
+        end_condition(host.world, entity, ConditionKind.UNCONSCIOUS)
 
 
 def _check_party_wipe(host: "App") -> None:

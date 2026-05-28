@@ -34,7 +34,7 @@ from src.core.effects import (
     EndCondition,
     KillEntity,
 )
-from src.core.modes import UIMode
+from src.core.modes import PlayMode, UIMode
 from src.core.save import load_game, save_game
 from src.core.shelter import RestPermission, ShelterZone
 from src.core.world import World
@@ -205,6 +205,78 @@ def test_three_failures_kills_pc() -> None:
 
     # KillEntity for the player triggers UIMode.game_over.
     assert app.ui_mode is UIMode.game_over
+
+
+def test_three_failures_clears_downed_state_artifacts() -> None:
+    """#119 — when a PC dies via the third failure the DeathSaves row
+    and the unconscious condition are torn down. Without this the
+    round-tick driver kept rolling a 4th/5th save on the dead actor.
+    """
+    app = _booted_app()
+    stats = app.world.combat_stats.require(app.player)
+    stats.hit_points = 0
+    app.apply_effects(begin_downed(app.world, app.player))
+
+    rng = _DeterministicRng([2, 2, 2])
+    for _ in range(3):
+        app.apply_effects(roll_death_save(app.world, app.player, rng))
+
+    assert app.ui_mode is UIMode.game_over
+    assert app.world.death_saves.get(app.player) is None
+    assert not is_unconscious(app.world, app.player)
+
+
+def test_round_tick_after_death_does_not_reroll_saves() -> None:
+    """#119 — subsequent round ticks must not roll another death save
+    on the dead PC. Reproduces the playtest scenario: three failures,
+    then several more round ticks, and asserts no zombie save state
+    materialises.
+    """
+    app = _booted_app()
+    stats = app.world.combat_stats.require(app.player)
+    stats.hit_points = 0
+    app.apply_effects(begin_downed(app.world, app.player))
+
+    # Force three failing rolls via the round-boundary tick. The third
+    # tick should emit KillEntity and tear down the downed state.
+    app.loot_rng = _DeterministicRng([2, 2, 2])
+    for _ in range(3):
+        app._tick_round_boundary()
+    assert app.ui_mode is UIMode.game_over
+    assert app.world.death_saves.get(app.player) is None
+
+    # Subsequent ticks must be no-ops for the dead actor. Hand the
+    # driver an empty RNG so an attempted roll would explode.
+    app.loot_rng = _DeterministicRng([])
+    for _ in range(5):
+        app._tick_round_boundary()
+
+    # No regression in the death-save row or the unconscious condition.
+    assert app.world.death_saves.get(app.player) is None
+    assert not is_unconscious(app.world, app.player)
+
+
+def test_save_after_pc_death_does_not_carry_downed_artifacts(tmp_path) -> None:
+    """#119 — a save written after a real PC death must not carry the
+    DeathSaves row or the unconscious condition forward to the next
+    load. The playtest report flagged save-friendliness as the long-
+    term failure mode.
+    """
+    app = _booted_app()
+    stats = app.world.combat_stats.require(app.player)
+    stats.hit_points = 0
+    app.apply_effects(begin_downed(app.world, app.player))
+
+    rng = _DeterministicRng([2, 2, 2])
+    for _ in range(3):
+        app.apply_effects(roll_death_save(app.world, app.player, rng))
+
+    target = tmp_path / "save.json"
+    save_game(app, target)
+    loaded = load_game(target)
+
+    assert loaded.world.death_saves.get(loaded.player) is None
+    assert not is_unconscious(loaded.world, loaded.player)
 
 
 def test_natural_20_revives_pc_to_one_hp() -> None:
@@ -428,6 +500,166 @@ def test_observation_surfaces_death_saves_summary() -> None:
     assert matched.death_saves.successes == 1
     assert matched.death_saves.failures == 2
     assert matched.death_saves.stable is False
+
+
+def _down_player_in_place(app) -> None:
+    """Helper: drop the player to 0 HP and apply the downed state.
+
+    Mirrors the playtest reproduction in #120 — the player is the
+    active actor and is unconscious with a fresh DeathSaves(0,0,False)
+    row. The party's other members are untouched.
+    """
+    stats = app.world.combat_stats.require(app.player)
+    stats.hit_points = 0
+    app.apply_effects(begin_downed(app.world, app.player))
+    assert is_unconscious(app.world, app.player)
+
+
+def test_unconscious_pc_cannot_move_attack_or_bump_attack() -> None:
+    """#120 — pressing ``l`` while unconscious refuses with a clear
+    message; the actor's action economy is not consumed.
+    """
+    app = _booted_app()
+    _down_player_in_place(app)
+    activation_before = app.turn.active_activation
+    action_used_before = activation_before.action_used
+    movement_used_before = activation_before.movement_used
+
+    app.handle_key(ord("l"))
+
+    assert "unconscious" in app.messages.current.lower()
+    # No action or movement consumed.
+    activation_after = app.turn.active_activation
+    assert activation_after.action_used == action_used_before
+    assert activation_after.movement_used == movement_used_before
+
+
+def test_unconscious_pc_examine_key_refused() -> None:
+    """#120 — pressing ``x`` while unconscious does not open the
+    examine cursor.
+    """
+    app = _booted_app()
+    _down_player_in_place(app)
+    assert app.ui_mode is UIMode.play
+
+    app.handle_key(ord("x"))
+
+    assert app.ui_mode is UIMode.play  # still on the world view
+    assert app.targeting is None
+    assert "unconscious" in app.messages.current.lower()
+
+
+def test_unconscious_pc_spell_menu_refused() -> None:
+    """#120 — pressing ``s`` while unconscious does not open the
+    spell-menu modal (broader scope than #107).
+    """
+    app = _booted_app()
+    _down_player_in_place(app)
+
+    app.handle_key(ord("s"))
+
+    assert app.ui_mode is UIMode.play
+    assert "unconscious" in app.messages.current.lower()
+
+
+def test_unconscious_pc_can_still_open_inventory() -> None:
+    """#120 — UI modals stay reachable while unconscious so the
+    player can inspect items / pass control to a teammate.
+    """
+    app = _booted_app()
+    _down_player_in_place(app)
+
+    app.handle_key(ord("i"))
+
+    assert app.ui_mode is UIMode.inventory
+
+
+def test_unconscious_pc_can_still_open_help() -> None:
+    """#120 — pressing ``?`` while unconscious still opens the help
+    modal (UI, not an action).
+    """
+    app = _booted_app()
+    _down_player_in_place(app)
+
+    app.handle_key(ord("?"))
+
+    assert app.ui_mode is UIMode.help
+
+
+def test_unconscious_pc_can_end_turn_with_space() -> None:
+    """#120 — pressing ``space`` while unconscious in turn-based mode
+    must still pass the turn so a teammate can heal them.
+    """
+    app = _booted_app()
+    _down_player_in_place(app)
+    # Force turn-based mode so end-turn is meaningful.
+    app.turn.voluntary_turn_based = True
+    app.turn.sync_play_mode()
+    assert app.turn.play_mode is PlayMode.turn_based
+    starting_index = app.party.active_index
+
+    app.handle_key(ord(" "))
+
+    # Either the active_index advanced or the turn controller wrapped
+    # the round; what matters is that the unconscious player is no
+    # longer the active actor.
+    assert app.active_actor() != app.player or app.party.active_index != starting_index
+
+
+def test_unconscious_pc_movement_keys_refused_each_direction() -> None:
+    """#120 — every cardinal movement key (h/j/k/l) is refused while
+    unconscious. The actor stays put and resources are not consumed.
+    """
+    app = _booted_app()
+    _down_player_in_place(app)
+    start_position = app.world.positions.require(app.player)
+    sx, sy = start_position.x, start_position.y
+
+    for key in ("h", "j", "k"):
+        app.handle_key(ord(key))
+        after = app.world.positions.require(app.player)
+        assert (after.x, after.y) == (sx, sy)
+        assert "unconscious" in app.messages.current.lower()
+
+
+def test_unconscious_pc_pickup_and_interact_refused() -> None:
+    """#120 — pickup (`,`) and interact (`e`) are refused while
+    unconscious — they're full-blown actions, not UI.
+    """
+    app = _booted_app()
+    _down_player_in_place(app)
+
+    app.handle_key(ord(","))
+    assert "unconscious" in app.messages.current.lower()
+
+    app.handle_key(ord("e"))
+    assert "unconscious" in app.messages.current.lower()
+
+
+def test_healing_after_downed_revives_and_clears_gate() -> None:
+    """#120 — once the unconscious condition lifts (e.g. via heal),
+    the same input that was refused now resolves normally. This is
+    the recovery path the constraints carve out.
+    """
+    from src.core.effects import ApplyHealing
+
+    app = _booted_app()
+    _down_player_in_place(app)
+
+    # Refuse first.
+    app.handle_key(ord("x"))
+    assert "unconscious" in app.messages.current.lower()
+    assert app.ui_mode is UIMode.play
+
+    # Heal and assert the unconscious condition + DeathSaves row are
+    # cleared by the existing heal path (the constraint we promised).
+    app.apply_effects([ApplyHealing(app.player, 3)])
+    assert not is_unconscious(app.world, app.player)
+    assert app.world.death_saves.get(app.player) is None
+
+    # The same key now opens the examine cursor.
+    app.handle_key(ord("x"))
+    assert app.ui_mode is UIMode.targeting
 
 
 def test_save_load_preserves_unconscious_condition_through_full_save(tmp_path) -> None:
