@@ -63,6 +63,18 @@ from src.testing.scenarios import Scenario, get_scenario
 from src.ui.observation import Observation, observe
 from src.ui.script_runner import CommandOutcome, run_script
 
+
+def _invoke_builder(
+    builder: Callable[..., "App | None"], app: "App", rng: random.Random
+) -> "App | None":
+    """Call a scenario builder, passing ``rng`` if its signature accepts a
+    second positional argument. Lets fixtures opt into determinism threading
+    while keeping single-argument builders working."""
+    try:
+        return builder(app, rng)
+    except TypeError:
+        return builder(app)
+
 if TYPE_CHECKING:
     from src.app import App
 
@@ -140,7 +152,7 @@ class PlaytestHarness:
         scenario: Scenario | None = None
         if scenario_name is not None:
             scenario = get_scenario(scenario_name)
-            replacement = scenario.builder(app)
+            replacement = _invoke_builder(scenario.builder, app, rng)
             if replacement is not None:
                 app = replacement
         self.scenario: Scenario | None = scenario
@@ -285,7 +297,7 @@ class PlaytestHarness:
         scenario = get_scenario(name)
         rng = random.Random(self.seed)
         app = create_app(rng=rng)
-        replacement = scenario.builder(app)
+        replacement = _invoke_builder(scenario.builder, app, rng)
         if replacement is not None:
             app = replacement
         self.app = app

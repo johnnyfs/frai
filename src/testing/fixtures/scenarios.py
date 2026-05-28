@@ -79,7 +79,7 @@ def _fixture_rng(seed: int = 0) -> random.Random:
     return random.Random(seed)
 
 
-def _build_combat_simple(_app: App) -> App:
+def _build_combat_simple(_app: App, rng: random.Random | None = None) -> App:
     def populate(room: FixtureRoom, player: EntityId, _party: list[EntityId]) -> None:
         # Two kobolds, both adjacent to the player. Adjacency forces
         # the play mode to ``turn_based`` from t=0 (no exploration
@@ -89,10 +89,10 @@ def _build_combat_simple(_app: App) -> App:
         spawn_kobold(room.world, px + 1, py)
         spawn_kobold(room.world, px, py + 1)
 
-    return make_fixture_app(rng=_fixture_rng(), populate=populate)
+    return make_fixture_app(rng=rng if rng is not None else _fixture_rng(), populate=populate)
 
 
-def _build_combat_archer(_app: App) -> App:
+def _build_combat_archer(_app: App, rng: random.Random | None = None) -> App:
     def populate(room: FixtureRoom, player: EntityId, _party: list[EntityId]) -> None:
         # Single ranged kobold at the opposite end of the room. The
         # RANGED AI keeps distance and shoots — at distance 6 the
@@ -102,10 +102,10 @@ def _build_combat_archer(_app: App) -> App:
         archer_x = min(px + 6, room.floor_bounds[2])
         spawn_kobold_archer(room.world, archer_x, py)
 
-    return make_fixture_app(rng=_fixture_rng(), populate=populate)
+    return make_fixture_app(rng=rng if rng is not None else _fixture_rng(), populate=populate)
 
 
-def _build_door_locked(_app: App) -> App:
+def _build_door_locked(_app: App, rng: random.Random | None = None) -> App:
     def populate(room: FixtureRoom, player: EntityId, _party: list[EntityId]) -> None:
         # Locked door one tile east of the player. The party rolls
         # Rogue (Sleight-of-Hand) so the M9 lockpick path is exercised
@@ -114,7 +114,7 @@ def _build_door_locked(_app: App) -> App:
         px, py = room.world.positions.require(player).x, room.world.positions.require(player).y
         spawn_door(room.world, px + 1, py, locked=True, pick_dc=10)
 
-    rng = _fixture_rng()
+    rng = rng if rng is not None else _fixture_rng()
     return make_fixture_app(
         rng=rng,
         populate=populate,
@@ -122,7 +122,7 @@ def _build_door_locked(_app: App) -> App:
     )
 
 
-def _build_trap_armed(_app: App) -> App:
+def _build_trap_armed(_app: App, rng: random.Random | None = None) -> App:
     def populate(room: FixtureRoom, player: EntityId, _party: list[EntityId]) -> None:
         # Trap two tiles east — close enough to interact with but not
         # on the spawn tile (so the test can decide whether to step
@@ -130,7 +130,7 @@ def _build_trap_armed(_app: App) -> App:
         px, py = room.world.positions.require(player).x, room.world.positions.require(player).y
         spawn_trap(room.world, px + 2, py, disarm_dc=10, damage=1)
 
-    rng = _fixture_rng()
+    rng = rng if rng is not None else _fixture_rng()
     return make_fixture_app(
         rng=rng,
         populate=populate,
@@ -138,7 +138,7 @@ def _build_trap_armed(_app: App) -> App:
     )
 
 
-def _build_container_loot(_app: App) -> App:
+def _build_container_loot(_app: App, rng: random.Random | None = None) -> App:
     def populate(room: FixtureRoom, player: EntityId, _party: list[EntityId]) -> None:
         # Chest two tiles east with a weapon + 25gp. The combination
         # exercises both M9 OpenEntity (toggles ``Container.is_open``)
@@ -152,10 +152,10 @@ def _build_container_loot(_app: App) -> App:
             gold=25,
         )
 
-    return make_fixture_app(rng=_fixture_rng(), populate=populate)
+    return make_fixture_app(rng=rng if rng is not None else _fixture_rng(), populate=populate)
 
 
-def _build_shop_basic(_app: App) -> App:
+def _build_shop_basic(_app: App, rng: random.Random | None = None) -> App:
     def populate(room: FixtureRoom, player: EntityId, _party: list[EntityId]) -> None:
         # Shopkeeper one tile east. Inventory carries a club and a
         # leather suit — both cheap enough for the standard 25g
@@ -176,10 +176,10 @@ def _build_shop_basic(_app: App) -> App:
             ),
         )
 
-    return make_fixture_app(rng=_fixture_rng(), populate=populate)
+    return make_fixture_app(rng=rng if rng is not None else _fixture_rng(), populate=populate)
 
 
-def _build_vision_corridor(_app: App) -> App:
+def _build_vision_corridor(_app: App, rng: random.Random | None = None) -> App:
     # Long-and-thin room: 31 tiles wide, 5 tall. The LOS radius is 10,
     # so a hostile at the far end is just outside vision at spawn —
     # the corridor is the canonical fixture for testing M19 LOS clipping.
@@ -210,7 +210,7 @@ def _build_vision_corridor(_app: App) -> App:
     return make_fixture_app(
         width=31,
         height=5,
-        rng=_fixture_rng(),
+        rng=rng if rng is not None else _fixture_rng(),
         populate=populate,
         # Party position is set inside populate; the helper still needs
         # a starting cell so it doesn't trip the "off-map" guard.
@@ -218,7 +218,7 @@ def _build_vision_corridor(_app: App) -> App:
     )
 
 
-def _build_hostile_far(_app: App) -> App:
+def _build_hostile_far(_app: App, rng: random.Random | None = None) -> App:
     # Square room large enough that a hostile parked in the far corner
     # is outside LOS at spawn. Autowalk-toward-the-corner reveals them.
     def populate(room: FixtureRoom, player: EntityId, _party: list[EntityId]) -> None:
@@ -234,13 +234,13 @@ def _build_hostile_far(_app: App) -> App:
     return make_fixture_app(
         width=30,
         height=30,
-        rng=_fixture_rng(),
+        rng=rng if rng is not None else _fixture_rng(),
         populate=populate,
         party_position=(2, 2),
     )
 
 
-def _build_open_terrain(_app: App) -> App:
+def _build_open_terrain(_app: App, rng: random.Random | None = None) -> App:
     # Large empty room for autowalk-to-bound: no hostiles, no doors.
     # The companions are explicitly parked along the south wall so the
     # leader has a clear west-east lane for a long autowalk — without
@@ -263,7 +263,7 @@ def _build_open_terrain(_app: App) -> App:
     return make_fixture_app(
         width=30,
         height=10,
-        rng=_fixture_rng(),
+        rng=rng if rng is not None else _fixture_rng(),
         populate=populate,
         party_position=(2, 4),
     )

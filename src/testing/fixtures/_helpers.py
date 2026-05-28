@@ -225,7 +225,8 @@ def spawn_party(
     world.blockers.add(player, BlocksMovement("occupied"))
     world.player_controlled.add(player, PlayerControlled())
     world.names.add(player, Name("you"))
-    world.factions.add(player, Faction("player"))
+    from src.core.factions import FactionId
+    world.factions.add(player, Faction(FactionId.PLAYER_PARTY.value))
     _assign_character_sheet(world, player, sheet)
     party = _add_companions_for_player_sheet(world, player, sheet)
     return player, party

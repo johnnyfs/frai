@@ -21,8 +21,6 @@ faction, modal state) that survive a re-seed cleanly.
 
 from __future__ import annotations
 
-import os
-
 import pytest
 
 from src.core.modes import PlayMode, UIMode
@@ -77,6 +75,26 @@ def test_fixture_deterministic_observation(name: str) -> None:
     a = PlaytestHarness(scenario_name=name, seed=7, dev_mode=False)
     b = PlaytestHarness(scenario_name=name, seed=7, dev_mode=False)
     assert a.observe().to_dict() == b.observe().to_dict()
+
+
+@pytest.mark.parametrize("name", ["combat_simple", "shop_basic", "open_terrain"])
+def test_fixture_seed_threads_through_builder(name: str) -> None:
+    """Different seeds must reach the fixture builder (loot rolls,
+    starter sheets) so two seeds produce DIFFERENT post-action outcomes.
+
+    Without seed threading, every fixture used a hardcoded seed and the
+    harness ``seed`` parameter was silently ignored.
+    """
+    a = PlaytestHarness(scenario_name=name, seed=7, dev_mode=False)
+    b = PlaytestHarness(scenario_name=name, seed=42, dev_mode=False)
+    # The same fixture geometry holds, but party HP/stats from the seeded
+    # YOLO sheet roll should diverge for at least one of the three names.
+    a_party = a.observe().to_dict()["party"]
+    b_party = b.observe().to_dict()["party"]
+    assert a_party != b_party, (
+        f"Fixture '{name}' produced identical t=0 party state under seeds "
+        f"7 and 42 — seed not threaded into builder."
+    )
 
 
 @pytest.mark.parametrize("name", _EXPECTED_FIXTURES)
