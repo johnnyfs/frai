@@ -10,9 +10,11 @@ from src.core.character_creation import (
     ABILITIES,
     CLASSES,
     RACES,
+    CharacterSheet,
     CharacterCreationState,
     choice_for_key,
     can_advance,
+    class_by_name,
     initial_character_creation_state,
     keymap_for_step,
     next_step,
@@ -155,6 +157,79 @@ def test_every_srd_race_class_creates_level_one_sheet_with_combat_stats(
     assert stats.proficiency_bonus == 2
 
 
+@pytest.mark.parametrize(
+    ("class_name", "excluded_resource"),
+    (
+        ("Monk", "ki"),
+        ("Cleric", "channel_divinity"),
+        ("Druid", "wild_shape"),
+        ("Paladin", "spell_slots"),
+        ("Ranger", "spell_slots"),
+        ("Sorcerer", "sorcery_points"),
+    ),
+)
+def test_level_one_class_metadata_excludes_higher_level_resources(
+    class_name: str,
+    excluded_resource: str,
+) -> None:
+    character_class = class_by_name(class_name)
+
+    assert character_class is not None
+    assert excluded_resource not in character_class.resource_hooks
+
+
+def test_combat_stats_for_sheet_rejects_non_level_one_sheet() -> None:
+    sheet = CharacterSheet(
+        race="Human",
+        character_class="Fighter",
+        specialization="Champion",
+        base_attributes=dict(BASE_ATTRIBUTES),
+        attributes=dict(BASE_ATTRIBUTES),
+        level=2,
+    )
+
+    with pytest.raises(ValueError, match="supports only level 1"):
+        combat_stats_for_sheet(sheet)
+
+
+def test_old_saved_character_sheet_dict_without_level_defaults_to_level_one() -> None:
+    saved_sheet = {
+        "race": "Human",
+        "character_class": "Wizard",
+        "specialization": "Evocation",
+        "base_attributes": dict(BASE_ATTRIBUTES),
+        "attributes": dict(BASE_ATTRIBUTES),
+        "cantrips": ("Light",),
+        "spells": ("Magic Missile",),
+        "skills": ("Arcana",),
+    }
+
+    sheet = CharacterSheet(**saved_sheet)
+
+    assert sheet.level == 1
+    assert sheet.cantrips == ("Light",)
+    assert sheet.spells == ("Magic Missile",)
+    assert sheet.skills == ("Arcana",)
+
+
+def test_positional_optional_character_sheet_fields_do_not_shift_into_level() -> None:
+    sheet = CharacterSheet(
+        "Human",
+        "Wizard",
+        "Evocation",
+        dict(BASE_ATTRIBUTES),
+        dict(BASE_ATTRIBUTES),
+        ("Light",),
+        ("Magic Missile",),
+        ("Arcana",),
+    )
+
+    assert sheet.level == 1
+    assert sheet.cantrips == ("Light",)
+    assert sheet.spells == ("Magic Missile",)
+    assert sheet.skills == ("Arcana",)
+
+
 def test_class_foundation_metadata_is_populated_for_future_rules_hooks() -> None:
     for character_class in CLASSES:
         assert character_class.hit_die in {6, 8, 10, 12}
@@ -163,7 +238,6 @@ def test_class_foundation_metadata_is_populated_for_future_rules_hooks() -> None
         assert set(character_class.saving_throw_proficiencies) <= set(ABILITIES)
         assert character_class.starting_equipment.weapon
         assert character_class.starting_equipment.armor
-        assert character_class.resource_hooks
         if character_class.spell_count or "spell_slots" in character_class.resource_hooks:
             assert character_class.spellcasting_ability in ABILITIES
 

@@ -60,10 +60,10 @@ class CharacterSheet:
     specialization: str
     base_attributes: dict[str, int]
     attributes: dict[str, int]
-    level: int = 1
     cantrips: tuple[str, ...] = ()
     spells: tuple[str, ...] = ()
     skills: tuple[str, ...] = ()
+    level: int = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -227,7 +227,7 @@ CLASSES: tuple[ClassOption, ...] = (
         4,
         DIVINE_SPELLS,
         "WIS",
-        ("spell_slots", "channel_divinity"),
+        ("spell_slots",),
     ),
     ClassOption(
         "Druid",
@@ -253,7 +253,7 @@ CLASSES: tuple[ClassOption, ...] = (
         4,
         DRUID_SPELLS,
         "WIS",
-        ("spell_slots", "wild_shape"),
+        ("spell_slots",),
     ),
     ClassOption(
         "Fighter",
@@ -286,7 +286,6 @@ CLASSES: tuple[ClassOption, ...] = (
         "martial",
         ("STR", "DEX"),
         StartingEquipment("shortsword", "none"),
-        resource_hooks=("ki",),
     ),
     ClassOption(
         "Paladin",
@@ -299,7 +298,7 @@ CLASSES: tuple[ClassOption, ...] = (
         ("WIS", "CHA"),
         StartingEquipment("longsword", "chain mail"),
         spellcasting_ability="CHA",
-        resource_hooks=("lay_on_hands", "spell_slots"),
+        resource_hooks=("lay_on_hands",),
     ),
     ClassOption(
         "Ranger",
@@ -321,7 +320,6 @@ CLASSES: tuple[ClassOption, ...] = (
         ("STR", "DEX"),
         StartingEquipment("shortsword", "scale mail"),
         spellcasting_ability="WIS",
-        resource_hooks=("spell_slots",),
     ),
     ClassOption(
         "Rogue",
@@ -362,7 +360,7 @@ CLASSES: tuple[ClassOption, ...] = (
         2,
         ARCANE_SPELLS,
         "CHA",
-        ("spell_slots", "sorcery_points"),
+        ("spell_slots",),
     ),
     ClassOption(
         "Warlock",

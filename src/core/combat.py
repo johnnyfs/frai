@@ -86,6 +86,8 @@ def proficiency_bonus_for_level(level: int) -> int:
 
 
 def combat_stats_for_sheet(sheet: CharacterSheet, armor: Armor | None = None) -> CombatStats:
+    if sheet.level != 1:
+        raise ValueError("combat_stats_for_sheet currently supports only level 1 sheets.")
     dexterity = sheet.attributes["DEX"]
     constitution = sheet.attributes["CON"]
     hit_die = require_class(sheet.character_class).hit_die
