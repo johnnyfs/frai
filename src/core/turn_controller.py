@@ -26,6 +26,10 @@ Design notes
 - Save/load: ``round_number``, ``active_index``, ``voluntary_turn_based``
   and the per-actor activation map together form the complete
   serializable shape of the controller.
+- Party membership lives on ``PartyState`` (M45). The controller reads
+  it directly and writes ``active_index`` through to the shared
+  ``PartyState`` so the camera, formation, and turn rotation all agree
+  on who is active.
 """
 
 from __future__ import annotations
@@ -35,10 +39,10 @@ from typing import Callable
 
 from src.core.entity import EntityId
 from src.core.modes import PlayMode, is_turn_based_play, play_mode_for_state
+from src.core.party_state import PartyState
 from src.core.turns import ActivationState
 
 
-PartyProvider = Callable[[], list[EntityId]]
 HostilesProbe = Callable[[], bool]
 CanTakeTurn = Callable[[EntityId], bool]
 
@@ -47,16 +51,15 @@ CanTakeTurn = Callable[[EntityId], bool]
 class TurnController:
     """Owns active actor, action economy, and turn-mode transitions.
 
-    The controller does not own the world or the party list directly;
-    instead it takes light callable seams so ``App`` can keep building
-    its party the way it already does (M45 will replace these with a
-    proper ``PartyState``).
+    The controller borrows ``PartyState`` for membership and active-index
+    state. Hostile presence and per-entity "can take turn" remain
+    callable seams because they project from world state that the
+    controller has no other handle on.
     """
 
-    party_provider: PartyProvider
+    party_state: PartyState
     hostiles_probe: HostilesProbe
     can_take_turn: CanTakeTurn
-    active_index: int = 0
     voluntary_turn_based: bool = False
     play_mode: PlayMode = PlayMode.explore
     round_number: int = 0
@@ -68,7 +71,17 @@ class TurnController:
 
     @property
     def party(self) -> list[EntityId]:
-        return self.party_provider()
+        """The party's member list. Kept as a property so existing
+        ``controller.party`` call sites (mostly tests) still resolve."""
+        return self.party_state.members
+
+    @property
+    def active_index(self) -> int:
+        return self.party_state.active_index
+
+    @active_index.setter
+    def active_index(self, value: int) -> None:
+        self.party_state.active_index = value
 
     def current_actor(self, fallback: EntityId | None = None) -> EntityId:
         """Return the active actor.
@@ -79,16 +92,15 @@ class TurnController:
         meaningful "focused" actor.
         """
 
+        members = self.party_state.members
         if not is_turn_based_play(self.play_mode):
             if fallback is None:
                 # Fall back to the head of the party rather than raising
                 # so explore-mode rendering still works during startup
                 # before the player entity is fully wired.
-                party = self.party
-                return party[0] if party else EntityId(0)
+                return members[0] if members else EntityId(0)
             return fallback
-        party = self.party
-        return party[self.active_index]
+        return members[self.party_state.active_index]
 
     def activation_for(self, entity: EntityId) -> ActivationState:
         """Return the activation state for ``entity``, creating it lazily."""
@@ -107,14 +119,14 @@ class TurnController:
         before any turn-based transition still see consistent state.
         """
 
-        party = self.party
-        if not party:
+        members = self.party_state.members
+        if not members:
             # No party yet (very early app construction). Use a sentinel
             # so callers reading ``activation`` do not crash.
             return self.activation_for(EntityId(0))
         if not is_turn_based_play(self.play_mode):
-            return self.activation_for(party[0])
-        return self.activation_for(party[self.active_index])
+            return self.activation_for(members[0])
+        return self.activation_for(members[self.party_state.active_index])
 
     # ------------------------------------------------------------------
     # Turn lifecycle
@@ -135,21 +147,21 @@ class TurnController:
         next round.
         """
 
-        party = self.party
-        if not party:
+        members = self.party_state.members
+        if not members:
             return
-        for index in range(self.active_index + 1, len(party)):
-            if self.can_take_turn(party[index]):
-                self.active_index = index
+        for index in range(self.party_state.active_index + 1, len(members)):
+            if self.can_take_turn(members[index]):
+                self.party_state.active_index = index
                 self.start_turn()
                 return
         # End-of-round bookkeeping is owned by the caller (App) so it
         # can run the enemy phase and tick the world clock between the
         # last party action and the first action of the next round.
         self.round_number += 1
-        for index, entity in enumerate(party):
+        for index, entity in enumerate(members):
             if self.can_take_turn(entity):
-                self.active_index = index
+                self.party_state.active_index = index
                 self.start_turn()
                 return
 
@@ -165,12 +177,12 @@ class TurnController:
         while the rotation logic stays here.
         """
 
-        party = self.party
-        if not party:
+        members = self.party_state.members
+        if not members:
             return False
-        for index in range(self.active_index + 1, len(party)):
-            if self.can_take_turn(party[index]):
-                self.active_index = index
+        for index in range(self.party_state.active_index + 1, len(members)):
+            if self.can_take_turn(members[index]):
+                self.party_state.active_index = index
                 self.start_turn()
                 return False
         # Round boundary: enemies act, world clock ticks, then the next
@@ -179,9 +191,9 @@ class TurnController:
             run_enemy_phase()
         tick_round()
         self.round_number += 1
-        for index, entity in enumerate(party):
+        for index, entity in enumerate(members):
             if self.can_take_turn(entity):
-                self.active_index = index
+                self.party_state.active_index = index
                 self.start_turn()
                 return True
         return True
@@ -295,7 +307,7 @@ class TurnController:
         # play (and vice versa).
         self.active_activation.reset_for_activation()
         if not is_turn_based_play(next_mode):
-            self.active_index = 0
+            self.party_state.active_index = 0
         return True
 
     # ------------------------------------------------------------------
@@ -304,7 +316,7 @@ class TurnController:
 
     def to_dict(self) -> dict:
         return {
-            "active_index": self.active_index,
+            "active_index": self.party_state.active_index,
             "voluntary_turn_based": self.voluntary_turn_based,
             "play_mode": self.play_mode.value,
             "round_number": self.round_number,
@@ -316,7 +328,7 @@ class TurnController:
 
     def reset(self) -> None:
         """Clear all per-actor state. Used by ``App.restart``."""
-        self.active_index = 0
+        self.party_state.active_index = 0
         self.voluntary_turn_based = False
         self.play_mode = PlayMode.explore
         self.round_number = 0

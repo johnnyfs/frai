@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 
 from src.core.entity import EntityId
 from src.core.modes import PlayMode
+from src.core.party_state import PartyState
 from src.core.turn_controller import TurnController
 
 
@@ -23,9 +24,13 @@ from src.core.turn_controller import TurnController
 
 @dataclass
 class _Fixture:
-    party: list[EntityId]
+    party_state: PartyState
     hostiles: bool = False
     dead: set[EntityId] = field(default_factory=set)
+
+    @property
+    def party(self) -> list[EntityId]:
+        return self.party_state.members
 
 
 def _make_controller(
@@ -34,9 +39,10 @@ def _make_controller(
     hostiles: bool = False,
     play_mode: PlayMode = PlayMode.explore,
 ) -> tuple[TurnController, _Fixture]:
-    fixture = _Fixture(party=[EntityId(i + 1) for i in range(party_size)], hostiles=hostiles)
+    party_state = PartyState.from_members(EntityId(i + 1) for i in range(party_size))
+    fixture = _Fixture(party_state=party_state, hostiles=hostiles)
     controller = TurnController(
-        party_provider=lambda: fixture.party,
+        party_state=party_state,
         hostiles_probe=lambda: fixture.hostiles,
         can_take_turn=lambda entity: entity not in fixture.dead,
         play_mode=play_mode,
