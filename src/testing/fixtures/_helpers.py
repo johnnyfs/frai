@@ -232,6 +232,135 @@ def spawn_party(
     return player, party
 
 
+_ADJACENT_OFFSETS: tuple[tuple[int, int], ...] = (
+    # Cardinal directions first (east, west, south, north), then diagonals.
+    # This matches the convention scenarios use ("one tile east of the
+    # player") so the first free cardinal is picked when possible.
+    (1, 0),
+    (-1, 0),
+    (0, 1),
+    (0, -1),
+    (1, 1),
+    (-1, 1),
+    (1, -1),
+    (-1, -1),
+)
+
+
+def find_open_adjacent(
+    world: World,
+    x: int,
+    y: int,
+    *,
+    bounds: tuple[int, int, int, int] | None = None,
+) -> tuple[int, int]:
+    """Return the first walkable, unoccupied tile adjacent to ``(x, y)``.
+
+    Iterates in a deterministic order — cardinals first (E, W, S, N),
+    then diagonals — so scenario builders that prefer "one tile east"
+    get that placement when the tile is free, and otherwise fall back
+    predictably. ``bounds`` is an optional ``(left, top, right, bottom)``
+    clamp (typically the fixture room's ``floor_bounds``) so candidates
+    don't escape the walled interior.
+
+    Raises :class:`RuntimeError` if no adjacent tile is open — fixture
+    rooms are deliberately sized so this should never trigger; the
+    exception exists to surface a misconfigured scenario loudly rather
+    than dump a silent collision into the world.
+    """
+    for dx, dy in _ADJACENT_OFFSETS:
+        cx, cy = x + dx, y + dy
+        if bounds is not None:
+            left, top, right, bottom = bounds
+            if not (left <= cx <= right and top <= cy <= bottom):
+                continue
+        if world.tile_at(cx, cy).blocks_movement:
+            continue
+        if world.entities_at(cx, cy):
+            continue
+        return cx, cy
+    raise RuntimeError(
+        f"No open adjacent tile found around ({x}, {y}) — fixture room is too crowded."
+    )
+
+
+def clear_tiles_for_spawn(
+    world: World,
+    tiles: tuple[tuple[int, int], ...],
+    movable: tuple[EntityId, ...],
+    *,
+    bounds: tuple[int, int, int, int],
+    avoid: tuple[tuple[int, int], ...] = (),
+) -> None:
+    """Relocate any of ``movable`` that sit on a tile in ``tiles``.
+
+    Used by fixture builders that want to place scenario entities on
+    *specific* cardinal tiles (e.g. "the door is exactly one east of
+    the player") and need to evict whichever companion the
+    deterministic party-placement helper left there. The relocated
+    entity is moved to the first walkable, unoccupied tile reachable
+    from its old position via :func:`find_open_adjacent`; positions
+    in ``avoid`` (typically the spawn tiles themselves plus the
+    player's tile) are skipped so the eviction can't cascade back into
+    the same conflict.
+
+    Mutates ``world.positions`` in place. Idempotent — passing tiles
+    that are already free is a no-op.
+    """
+    blocked = set(tiles) | set(avoid)
+    targeted = set(tiles)
+    for entity in movable:
+        position = world.positions.get(entity)
+        if position is None:
+            continue
+        current = (position.x, position.y)
+        if current not in targeted:
+            continue
+        # Find a new tile that isn't claimed and isn't in the avoid set.
+        new_position: tuple[int, int] | None = None
+        for dx, dy in _ADJACENT_OFFSETS:
+            cx, cy = position.x + dx, position.y + dy
+            left, top, right, bottom = bounds
+            if not (left <= cx <= right and top <= cy <= bottom):
+                continue
+            if (cx, cy) in blocked:
+                continue
+            if world.tile_at(cx, cy).blocks_movement:
+                continue
+            if world.entities_at(cx, cy):
+                continue
+            new_position = (cx, cy)
+            break
+        if new_position is None:
+            raise RuntimeError(
+                f"Could not relocate entity {entity} off {current} — no open tile."
+            )
+        position.x, position.y = new_position
+        blocked.add(new_position)
+
+
+def _require_open_spawn_tile(world: World, x: int, y: int, kind: str) -> None:
+    """Guard against spawning a fixture entity on top of an existing one.
+
+    Used by every ``spawn_*`` helper. Raises a clear error so collisions
+    surface during fixture construction rather than mid-playtest as a
+    confusing "You displaced X." message at t=0.
+    """
+    if world.tile_at(x, y).blocks_movement:
+        raise RuntimeError(
+            f"Cannot spawn {kind} at ({x}, {y}): tile blocks movement."
+        )
+    occupants = world.entities_at(x, y)
+    if occupants:
+        names = ", ".join(
+            (world.names.get(e).value if world.names.has(e) else f"entity_{e}")
+            for e in occupants
+        )
+        raise RuntimeError(
+            f"Cannot spawn {kind} at ({x}, {y}): tile already occupied by {names}."
+        )
+
+
 def spawn_kobold(
     world: World,
     x: int,
@@ -244,7 +373,11 @@ def spawn_kobold(
     Carries the canonical M28 ``dungeon`` faction so the M28 relation
     table treats it as hostile to the player party without falling
     through the legacy ``"enemy" → DUNGEON`` alias.
+
+    Raises :class:`RuntimeError` if ``(x, y)`` is already occupied — use
+    :func:`find_open_adjacent` to discover a free tile near the party.
     """
+    _require_open_spawn_tile(world, x, y, "kobold")
     entity = world.create_entity()
     world.positions.add(entity, Position(x=x, y=y))
     world.presentations.add(entity, Presentation("k"))
@@ -304,7 +437,10 @@ def spawn_door(
 
     Doors block movement until opened; locked doors additionally
     require a Sleight-of-Hand check (the M9 default) to bypass.
+
+    Raises :class:`RuntimeError` if ``(x, y)`` is already occupied.
     """
+    _require_open_spawn_tile(world, x, y, "door")
     entity = world.create_entity()
     world.positions.add(entity, Position(x=x, y=y))
     world.presentations.add(entity, Presentation("+"))
@@ -330,7 +466,10 @@ def spawn_trap(
     tile (or pre-empts it by interacting toward it for the disarm
     check). Damage is small so a fixture run doesn't accidentally KO
     the actor mid-test.
+
+    Raises :class:`RuntimeError` if ``(x, y)`` is already occupied.
     """
+    _require_open_spawn_tile(world, x, y, "trap")
     entity = world.create_entity()
     world.positions.add(entity, Position(x=x, y=y))
     world.presentations.add(entity, Presentation("^"))
@@ -353,7 +492,10 @@ def spawn_chest(
     tile via ``e``). Contents land in its :class:`Inventory`; opening
     via :data:`OpenEntity` flips the ``is_open`` flag, and pickup uses
     the standard M30 inventory transfer.
+
+    Raises :class:`RuntimeError` if ``(x, y)`` is already occupied.
     """
+    _require_open_spawn_tile(world, x, y, "chest")
     entity = world.create_entity()
     world.positions.add(entity, Position(x=x, y=y))
     world.presentations.add(entity, Presentation("="))
@@ -383,7 +525,10 @@ def spawn_shopkeeper(
     (no forced turn-based mode, no autowalk interrupt). The shop
     machinery in :mod:`src.core.shop` reads from the :class:`Inventory`
     on the same entity.
+
+    Raises :class:`RuntimeError` if ``(x, y)`` is already occupied.
     """
+    _require_open_spawn_tile(world, x, y, "shopkeeper")
     entity = world.create_entity()
     world.positions.add(entity, Position(x=x, y=y))
     world.presentations.add(entity, Presentation("S"))
