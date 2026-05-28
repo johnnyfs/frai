@@ -27,12 +27,11 @@ from src.core.effects import (
     SetMode,
 )
 from src.core.entity import EntityId
-from src.core.actions import AttackAttempt, EndTurn, MoveAttempt, ToggleTurnMode
+from src.core.actions import EndTurn, MoveAttempt, ToggleTurnMode
 from src.core.modes import GameMode, GameOverMode, NormalMode, StartChoiceMode
 from src.core.turns import (
     ActivationState,
     MajorMode,
-    MOVEMENT_TOTAL_FEET,
     is_turn_based,
     major_mode_for_state,
 )
@@ -42,6 +41,7 @@ from src.systems.game_over_system import GameOverSystem
 from src.systems.input_system import map_key
 from src.systems.inventory_system import InventorySystem
 from src.systems.character_creation_system import CharacterCreationSystem
+from src.systems.ai_system import EnemyAISystem
 from src.systems.combat_system import CombatSystem
 from src.systems.message_system import MessageState
 from src.systems.movement_system import (
@@ -228,35 +228,11 @@ class App:
             (system for system in self.dispatcher.systems if isinstance(system, CombatSystem)),
             CombatSystem(),
         )
-        for enemy in list(self.world.combat_stats.values):
-            if self.world.player_controlled.has(enemy) or not self.world.positions.has(enemy):
-                continue
-            movement_used = 0.0
-            action_used = False
-            while self.world.positions.has(enemy):
-                target = _nearest_living_party_member(self.world, enemy, self.party)
-                if target is None:
-                    return
-                if _chebyshev_distance(self.world, enemy, target) <= 1:
-                    if not action_used:
-                        self.apply_effects(combat.resolve_attack(AttackAttempt(enemy, target), self.world))
-                        action_used = True
-                    break
-                if movement_used >= MOVEMENT_TOTAL_FEET:
-                    break
-                step = _enemy_step_toward(
-                    self.world,
-                    enemy,
-                    target,
-                    MOVEMENT_TOTAL_FEET - movement_used,
-                )
-                if step is None:
-                    break
-                dx, dy = step
-                action = MoveAttempt(enemy, dx, dy)
-                movement_used += movement_cost_for_attempt(self.world, action)
-                position = self.world.positions.require(enemy)
-                self.apply_effects([MoveEntity(enemy, position.x + dx, position.y + dy)])
+        EnemyAISystem(combat=combat).run_enemy_activations(
+            self.world,
+            self.party,
+            self.apply_effects,
+        )
 
     def restart(self) -> None:
         built, party = _build_party_world(width=self.world.width, height=self.world.height)
@@ -415,67 +391,6 @@ def _hostiles_in_sight(world: World, party: list[EntityId]) -> bool:
 def _can_take_turn(world: World, entity: EntityId) -> bool:
     stats = world.combat_stats.get(entity)
     return world.positions.has(entity) and (stats is None or stats.hit_points > 0)
-
-
-def _nearest_living_party_member(
-    world: World,
-    enemy: EntityId,
-    party: list[EntityId],
-) -> EntityId | None:
-    candidates = [entity for entity in party if _can_take_turn(world, entity)]
-    if not candidates:
-        return None
-    enemy_position = world.positions.require(enemy)
-    return min(
-        candidates,
-        key=lambda entity: max(
-            abs(world.positions.require(entity).x - enemy_position.x),
-            abs(world.positions.require(entity).y - enemy_position.y),
-        ),
-    )
-
-
-def _chebyshev_distance(world: World, a: EntityId, b: EntityId) -> int:
-    a_position = world.positions.require(a)
-    b_position = world.positions.require(b)
-    return max(abs(a_position.x - b_position.x), abs(a_position.y - b_position.y))
-
-
-def _enemy_step_toward(
-    world: World,
-    enemy: EntityId,
-    target: EntityId,
-    movement_remaining: float,
-) -> tuple[int, int] | None:
-    enemy_position = world.positions.require(enemy)
-    target_position = world.positions.require(target)
-    dx = _sign(target_position.x - enemy_position.x)
-    dy = _sign(target_position.y - enemy_position.y)
-    candidates = [(dx, dy)]
-    if dx != 0:
-        candidates.append((dx, 0))
-    if dy != 0:
-        candidates.append((0, dy))
-    for candidate_dx, candidate_dy in candidates:
-        if candidate_dx == 0 and candidate_dy == 0:
-            continue
-        action = MoveAttempt(enemy, candidate_dx, candidate_dy)
-        if movement_cost_for_attempt(world, action) > movement_remaining:
-            continue
-        destination_x = enemy_position.x + candidate_dx
-        destination_y = enemy_position.y + candidate_dy
-        if world.blockers_at(destination_x, destination_y):
-            continue
-        return candidate_dx, candidate_dy
-    return None
-
-
-def _sign(value: int) -> int:
-    if value < 0:
-        return -1
-    if value > 0:
-        return 1
-    return 0
 
 
 def _setup_curses(stdscr: curses.window) -> None:

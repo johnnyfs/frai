@@ -1,6 +1,21 @@
 from dataclasses import dataclass
+from enum import Enum
 
 from .character_creation import CharacterSheet
+
+
+class AIBehaviorType(str, Enum):
+    CHASE = "chase"
+    FLEE = "flee"
+    WANDER = "wander"
+    RANGED = "ranged"
+
+
+@dataclass(frozen=True, slots=True)
+class AI:
+    behavior: AIBehaviorType = AIBehaviorType.CHASE
+    attack_range: int = 1
+    preferred_range: int = 3
 
 
 @dataclass(slots=True)

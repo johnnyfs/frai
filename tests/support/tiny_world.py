@@ -5,6 +5,7 @@ import random
 from src.core.actions import Action
 from src.core.combat import weapon_for_name
 from src.core.components import (
+    AI,
     BlocksMovement,
     CombatStats,
     Creature,
@@ -133,6 +134,7 @@ def add_enemy(
     hit_points: int = 3,
     armor_class: int = 10,
     weapon: str = "dagger",
+    ai: AI | None = None,
 ) -> EntityId:
     enemy = add_actor(
         world,
@@ -150,6 +152,8 @@ def add_enemy(
         weapon=weapon,
     )
     world.creatures.add(enemy, Creature(kind=kind, attack_verb=attack_verb))
+    if ai is not None:
+        world.ai.add(enemy, ai)
     return enemy
 
 
