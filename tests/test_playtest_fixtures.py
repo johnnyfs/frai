@@ -45,6 +45,7 @@ _EXPECTED_FIXTURES = (
     "open_terrain",
     "spell_encounter",
     "stealth_encounter",
+    "shelter_zone",
 )
 
 

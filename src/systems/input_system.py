@@ -4,6 +4,7 @@ from src.core.actions import (
     Action,
     CharacterCreationCommand,
     CloseInventory,
+    CloseRestMenu,
     CloseSpellMenu,
     DropItemAttempt,
     EndTurn,
@@ -16,6 +17,8 @@ from src.core.actions import (
     PickupAttempt,
     QuitConfirm,
     QuitRequest,
+    RestMenuChoice,
+    RestMenuRequest,
     SneakAttempt,
     SpellMenuChoice,
     SpellMenuRequest,
@@ -125,6 +128,8 @@ def map_key(
             return SneakAttempt(actor=player)
         if key_name == "p":
             return PerceptionAttempt(actor=player)
+        if key_name == "r":
+            return RestMenuRequest(actor=player)
         if key_name in MOVE_KEYS:
             dx, dy = MOVE_KEYS[key_name]
             return MoveAttempt(actor=player, dx=dx, dy=dy)
@@ -140,6 +145,20 @@ def map_key(
         # so the input layer remains data-free.
         if key_name is not None and len(key_name) == 1 and key_name.isalpha():
             return SpellMenuChoice(actor=player, spell_id=key_name)
+        return None
+
+    if ui_mode is UIMode.rest_menu:
+        # The rest modal accepts ``s`` (short), ``l`` (long), and a
+        # cancel via ``q`` / ``Esc``. Keep it tight: any other key is
+        # ignored so a stray inventory press during the modal cannot
+        # leak through. The App resolves the kind through the rest
+        # system; the input layer just normalises the choice.
+        if key_name in (None, "q") or key == 27:
+            return CloseRestMenu()
+        if key_name == "s":
+            return RestMenuChoice(actor=player, kind="short")
+        if key_name == "l":
+            return RestMenuChoice(actor=player, kind="long")
         return None
 
     if ui_mode is UIMode.quit_confirm:

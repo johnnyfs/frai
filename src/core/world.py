@@ -37,6 +37,7 @@ from src.core.dialogue import DialogueTree
 from src.core.entity import EntityId
 from src.core.factions import AggroOverride, AggroOverrideList, FactionId, Relation
 from src.core.loot import DropTable, GoldDrop, ItemDrop
+from src.core.shelter import ShelterZoneRegistry, ZoneOccupancyState
 from src.core.spells import SpellList, SpellSlots
 from src.core.stealth import AwarenessTracker
 from src.core.time import Schedule, ScheduledEvent, WorldTime
@@ -132,6 +133,8 @@ class World:
     )
     clock: WorldTime = field(default_factory=WorldTime)
     schedule: Schedule = field(default_factory=Schedule)
+    shelter_zones: ShelterZoneRegistry = field(default_factory=ShelterZoneRegistry)
+    zone_occupancy: ZoneOccupancyState = field(default_factory=ZoneOccupancyState)
 
     def create_entity(self) -> EntityId:
         entity = EntityId(self.next_entity_id)
@@ -264,6 +267,8 @@ class World:
             "components": components_payload,
             "clock": self.clock.to_dict(),
             "schedule": self.schedule.to_dict(),
+            "shelter_zones": self.shelter_zones.to_dict(),
+            "zone_occupancy": self.zone_occupancy.to_dict(),
         }
 
     @classmethod
@@ -318,6 +323,12 @@ class World:
         schedule_payload = data.get("schedule")
         if schedule_payload is not None:
             world.schedule = _schedule_from_dict(schedule_payload)
+        shelter_payload = data.get("shelter_zones")
+        if shelter_payload is not None:
+            world.shelter_zones = ShelterZoneRegistry.from_dict(shelter_payload)
+        occupancy_payload = data.get("zone_occupancy")
+        if occupancy_payload is not None:
+            world.zone_occupancy = ZoneOccupancyState.from_dict(occupancy_payload)
         return world
 
 

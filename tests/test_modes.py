@@ -32,6 +32,7 @@ def test_ui_mode_and_play_mode_are_independent_enums() -> None:
         "help",
         "message_pager",
         "spell_menu",
+        "rest_menu",
         "quit_confirm",
         "game_over",
     }
