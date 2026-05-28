@@ -100,7 +100,7 @@ Architecture direction:
 | M25 | Leveling, XP, and rewards                          | M5, M10, M14                | #27               | unassigned |
 | M26 | Skill checks and DC checks                         | M5                          | #50               | complete   |
 | M27 | Time and clocks                                    | M4                          | #49               | complete   |
-| M28 | Faction and hostility model                        | M3, M6, M13                 | #16               | unassigned |
+| M28 | Faction and hostility model                        | M3, M6, M13                 | #72               | complete   |
 | M29 | Downed, unconscious, death saves, and recovery     | M24, M34                    | #26               | unassigned |
 | M30 | Loot containers, corpses, and dropped items        | M9, M12                     | #63               | complete   |
 | M31 | Command help and keybinding screen                 | M17                         | #28               | unassigned |
