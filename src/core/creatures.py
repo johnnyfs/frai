@@ -1,6 +1,7 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from src.core.components import CombatStats, Creature, Weapon
+from src.core.loot import DropTable, GoldDrop, ItemDrop
 
 
 @dataclass(frozen=True, slots=True)
@@ -11,6 +12,7 @@ class CreatureSpec:
     attack_verb: str
     stats: CombatStats
     weapon: Weapon
+    loot: DropTable = field(default_factory=DropTable)
 
 
 CREATURES: dict[str, CreatureSpec] = {
@@ -77,6 +79,17 @@ CREATURES: dict[str, CreatureSpec] = {
             proficiency_bonus=2,
         ),
         weapon=Weapon("dagger", 4, "piercing", ability="DEX", finesse=True),
+        loot=DropTable(
+            entries=(
+                GoldDrop(amount_min=1, amount_max=5),
+                ItemDrop(
+                    item_id="weapon.dagger",
+                    probability=0.5,
+                    quantity_min=1,
+                    quantity_max=1,
+                ),
+            )
+        ),
     ),
 }
 

@@ -133,6 +133,52 @@ class GrantItem:
     quantity: int = 1
 
 
+@dataclass(frozen=True, slots=True)
+class TransferInventory:
+    """Move every item (and all gold) from ``source`` into ``destination``.
+
+    Used by the M30 pickup flow. ``source`` is left with an empty
+    inventory; the entity itself is not removed (corpses persist, and
+    containers are emptied in place).
+    """
+
+    source: EntityId
+    destination: EntityId
+
+
+@dataclass(frozen=True, slots=True)
+class SpawnCorpse:
+    """Drop a corpse at (x, y) with the rolled loot inventory.
+
+    ``creature_kind`` is purely cosmetic / informational; the corpse's
+    ``Inventory`` is the authoritative contents store.
+    """
+
+    x: int
+    y: int
+    creature_kind: str
+    gold: int
+    items: tuple[tuple[str, int], ...]
+
+
+@dataclass(frozen=True, slots=True)
+class DropToGround:
+    """Drop ``quantity`` of ``item_id`` (or ``gold`` if item_id is None)
+    from ``source``'s inventory to a fresh ground entity at (x, y).
+
+    The pickup flow can later transfer it back into a party member's
+    inventory like any other ground stuff. Stackable items merge with
+    an existing dropped-stuff entity on the same tile.
+    """
+
+    source: EntityId
+    x: int
+    y: int
+    item_id: str | None
+    quantity: int = 1
+    gold: int = 0
+
+
 Effect: TypeAlias = (
     MoveEntity
     | EmitMessage
@@ -151,4 +197,7 @@ Effect: TypeAlias = (
     | SpawnEntity
     | GrantGold
     | GrantItem
+    | TransferInventory
+    | SpawnCorpse
+    | DropToGround
 )

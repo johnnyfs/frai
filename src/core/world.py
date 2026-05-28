@@ -8,6 +8,7 @@ from src.core.components import (
     Character,
     CombatStats,
     Container,
+    Corpse,
     Creature,
     Door,
     Equipment,
@@ -15,6 +16,7 @@ from src.core.components import (
     GodMode,
     Inventory,
     Lock,
+    LootDrop,
     Name,
     PlayerControlled,
     Position,
@@ -90,6 +92,8 @@ class World:
     locks: ComponentStore[Lock] = field(default_factory=lambda: ComponentStore({}))
     traps: ComponentStore[Trap] = field(default_factory=lambda: ComponentStore({}))
     containers: ComponentStore[Container] = field(default_factory=lambda: ComponentStore({}))
+    corpses: ComponentStore[Corpse] = field(default_factory=lambda: ComponentStore({}))
+    loot_drops: ComponentStore[LootDrop] = field(default_factory=lambda: ComponentStore({}))
     god_modes: ComponentStore[GodMode] = field(default_factory=lambda: ComponentStore({}))
     clock: WorldTime = field(default_factory=WorldTime)
     schedule: Schedule = field(default_factory=Schedule)
@@ -151,6 +155,8 @@ class World:
             self.locks,
             self.traps,
             self.containers,
+            self.corpses,
+            self.loot_drops,
             self.god_modes,
         ):
             store.values.pop(entity, None)

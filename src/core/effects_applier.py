@@ -17,10 +17,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol
 
-from src.core.components import GodMode, Inventory
+from src.core.components import Corpse, GodMode, Inventory, Name, Position, Presentation
 from src.core.effects import (
     DamageEntity,
     DisarmTrap,
+    DropToGround,
     Effect,
     EmitMessage,
     GrantGold,
@@ -34,7 +35,9 @@ from src.core.effects import (
     SetCharacterSheet,
     SetGodMode,
     SetMode,
+    SpawnCorpse,
     SpawnEntity,
+    TransferInventory,
     TriggerTrap,
     UnlockEntity,
 )
@@ -58,6 +61,7 @@ class _AppHost(Protocol):
     party: object  # PartyState; typed loosely to avoid a circular import.
     active_party_index: int
     player: object
+    loot_rng: object  # random.Random; used by the kill-loot pipeline.
 
     # Methods the handlers invoke.
     def restart(self) -> None: ...
@@ -143,6 +147,17 @@ class EffectApplier:
             _apply_grant_item(self._host, effect)
             return
 
+        # Loot / pickup / drop (M30)
+        if isinstance(effect, TransferInventory):
+            _apply_transfer_inventory(self._host, effect, messages)
+            return
+        if isinstance(effect, SpawnCorpse):
+            _apply_spawn_corpse(self._host, effect)
+            return
+        if isinstance(effect, DropToGround):
+            _apply_drop_to_ground(self._host, effect, messages)
+            return
+
         # Messages
         if isinstance(effect, EmitMessage):
             messages.append(effect.text)
@@ -183,12 +198,76 @@ def _apply_damage_entity(host: "App", effect: DamageEntity) -> None:
 
 
 def _apply_kill_entity(host: "App", effect: KillEntity) -> None:
-    """Reaches into App state: if the player dies we flip to UIMode.game_over."""
+    """Reaches into App state: if the player dies we flip to UIMode.game_over.
+
+    For non-player kills, if the dying entity has a ``LootDrop`` we roll
+    its drop table (via the host's ``loot_rng`` so seeded fixtures stay
+    deterministic) and spawn a corpse at the same tile carrying the
+    rolled inventory. The dying entity is then removed.
+    """
     if effect.entity == host.player:
         host.ui_mode = UIMode.game_over
         host.character_creation_state = None
-    else:
-        host.world.remove_entity(effect.entity)
+        return
+    world = host.world
+    loot_drop = world.loot_drops.get(effect.entity)
+    position = world.positions.get(effect.entity)
+    creature = world.creatures.get(effect.entity)
+    if loot_drop is not None and position is not None:
+        from src.core.loot import roll_loot
+
+        roll = roll_loot(loot_drop.table, host.loot_rng)
+        if roll.gold or roll.items:
+            _spawn_corpse_entity(
+                world,
+                x=position.x,
+                y=position.y,
+                creature_kind=creature.kind if creature is not None else "",
+                gold=roll.gold,
+                items=roll.items,
+            )
+        else:
+            # Empty roll: still leave a bare corpse so the kill is visible.
+            _spawn_corpse_entity(
+                world,
+                x=position.x,
+                y=position.y,
+                creature_kind=creature.kind if creature is not None else "",
+                gold=0,
+                items=(),
+            )
+    world.remove_entity(effect.entity)
+
+
+def _spawn_corpse_entity(
+    world,
+    *,
+    x: int,
+    y: int,
+    creature_kind: str,
+    gold: int,
+    items: tuple[tuple[str, int], ...],
+):
+    """Create a corpse entity at (x, y) with the rolled inventory.
+
+    Corpses are non-blocking ground entities (you can walk onto a
+    corpse to loot it with ``,``). They carry an ``Inventory`` so the
+    same pickup/transfer code works for corpses, dropped items, and
+    open containers alike.
+    """
+    from src.core.items import add_item
+
+    entity = world.create_entity()
+    world.positions.add(entity, Position(x=x, y=y))
+    world.presentations.add(entity, Presentation("%"))
+    name = f"{creature_kind} corpse" if creature_kind else "corpse"
+    world.names.add(entity, Name(name))
+    world.corpses.add(entity, Corpse(creature_kind=creature_kind))
+    inventory = Inventory(gold=gold)
+    for item_id, quantity in items:
+        add_item(inventory, item_id, quantity=quantity)
+    world.inventories.add(entity, inventory)
+    return entity
 
 
 # ---------------------------------------------------------------------------
@@ -343,3 +422,142 @@ def _apply_grant_item(host: "App", effect: GrantItem) -> None:
     if inventory is None:
         return
     add_item(inventory, effect.item_id, quantity=effect.quantity)
+
+
+# ---------------------------------------------------------------------------
+# Loot effects (M30)
+# ---------------------------------------------------------------------------
+
+
+def _apply_transfer_inventory(
+    host: "App", effect: TransferInventory, messages: list[str]
+) -> None:
+    """Move every item and all gold from ``source`` into ``destination``.
+
+    Empty loose drops (anything that owns Inventory + Position but is
+    not a Container and not a Corpse) are removed from the world after
+    the transfer. Corpses and chests stay on the ground so the player
+    has a visible record.
+    """
+    from src.core.items import add_item
+
+    world = host.world
+    source_inventory = world.inventories.get(effect.source)
+    destination_inventory = world.inventories.get(effect.destination)
+    if source_inventory is None or destination_inventory is None:
+        return
+
+    transferred_names: list[str] = []
+    if source_inventory.gold:
+        destination_inventory.gold += source_inventory.gold
+        transferred_names.append(f"{source_inventory.gold} gold")
+        source_inventory.gold = 0
+    for stack in list(source_inventory.items):
+        add_item(destination_inventory, stack.item_id, quantity=stack.quantity)
+        transferred_names.append(
+            f"{stack.quantity}x {stack.item_id}"
+            if stack.quantity != 1
+            else stack.item_id
+        )
+        source_inventory.items.remove(stack)
+
+    if transferred_names:
+        source_name = world.name_for(effect.source)
+        messages.append(
+            f"Picked up {', '.join(transferred_names)} from {source_name}."
+        )
+
+    # Loose ground drops (no container, no corpse) are removed when empty.
+    is_container = world.containers.has(effect.source)
+    is_corpse = world.corpses.has(effect.source)
+    if not is_container and not is_corpse:
+        world.remove_entity(effect.source)
+
+
+def _apply_spawn_corpse(host: "App", effect: SpawnCorpse) -> None:
+    """Create a corpse entity at (x, y) with the rolled loot inventory."""
+    _spawn_corpse_entity(
+        host.world,
+        x=effect.x,
+        y=effect.y,
+        creature_kind=effect.creature_kind,
+        gold=effect.gold,
+        items=effect.items,
+    )
+
+
+def _apply_drop_to_ground(
+    host: "App", effect: DropToGround, messages: list[str]
+) -> None:
+    """Move ``quantity`` of ``item_id`` (or gold) from source to a ground entity.
+
+    Merges into any existing loose ground-drop entity on the tile (one
+    that has Inventory + Position and is not a container/corpse). A
+    corpse on the tile is not merged into — dropping onto a corpse
+    creates a new pile next to it (semantically still at the same tile
+    but rendered as a fresh entity).
+    """
+    from src.core.items import add_item, has_item, remove_item
+
+    world = host.world
+    source_inventory = world.inventories.get(effect.source)
+    if source_inventory is None:
+        return
+
+    if effect.item_id is None:
+        # Gold drop.
+        if effect.gold <= 0 or source_inventory.gold < effect.gold:
+            return
+        source_inventory.gold -= effect.gold
+        target = _ground_drop_at(world, effect.x, effect.y)
+        if target is None:
+            target = _spawn_ground_drop(world, effect.x, effect.y)
+        target_inventory = world.inventories.require(target)
+        target_inventory.gold += effect.gold
+        messages.append(f"Dropped {effect.gold} gold.")
+        return
+
+    if effect.quantity <= 0:
+        return
+    if not has_item(source_inventory, effect.item_id, effect.quantity):
+        return
+    remove_item(source_inventory, effect.item_id, effect.quantity)
+    target = _ground_drop_at(world, effect.x, effect.y)
+    if target is None:
+        target = _spawn_ground_drop(world, effect.x, effect.y)
+    target_inventory = world.inventories.require(target)
+    add_item(target_inventory, effect.item_id, quantity=effect.quantity)
+    qty = f"{effect.quantity}x " if effect.quantity != 1 else ""
+    messages.append(f"Dropped {qty}{effect.item_id}.")
+
+
+def _ground_drop_at(world, x: int, y: int):
+    """Return an existing loose-drop entity at (x, y), if any.
+
+    Containers and corpses are intentionally NOT merged into — dropping
+    onto a corpse leaves a separate pile so the player can still tell
+    "stuff I dropped" from "stuff the monster carried".
+    """
+    for entity in world.entities_at(x, y):
+        if not world.inventories.has(entity):
+            continue
+        if world.containers.has(entity):
+            continue
+        if world.corpses.has(entity):
+            continue
+        if world.creatures.has(entity):
+            continue
+        if world.player_controlled.has(entity):
+            continue
+        return entity
+    return None
+
+
+def _spawn_ground_drop(world, x: int, y: int):
+    """Create a fresh loose-drop ground entity (Inventory + Position)."""
+    entity = world.create_entity()
+    world.positions.add(entity, Position(x=x, y=y))
+    world.presentations.add(entity, Presentation("*"))
+    world.names.add(entity, Name("items"))
+    world.inventories.add(entity, Inventory())
+    return entity

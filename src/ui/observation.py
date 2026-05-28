@@ -407,6 +407,13 @@ def _non_creature_kind(world: Any, entity: EntityId) -> str | None:
         return "shop"
     if world.traps.has(entity):
         return "trap"
+    if world.corpses.has(entity):
+        return "corpse"
+    if world.inventories.has(entity):
+        # Loose ground-drop entities (M30): Inventory + Position with
+        # no creature/container/corpse marker. Tagging them so an
+        # agentic playtester can spot a pickup target.
+        return "ground_items"
     return None
 
 
@@ -479,7 +486,7 @@ def _available_actions(
     if ui_mode is UIMode.character_creation:
         return ["creation.choose", "creation.back", "creation.confirm"]
     if ui_mode is UIMode.inventory:
-        return ["inventory.close"]
+        return ["inventory.close", "inventory.drop"]
     if ui_mode is UIMode.quit_confirm:
         return ["quit.confirm", "quit.cancel"]
     if ui_mode is UIMode.game_over:
@@ -489,7 +496,7 @@ def _available_actions(
     if ui_mode is not UIMode.play or active is None:
         return []
 
-    actions: list[str] = ["move", "interact", "inventory", "quit"]
+    actions: list[str] = ["move", "interact", "inventory", "pickup", "quit"]
     if combat is None:
         # Explore mode: voluntary turn toggle is always available; no
         # action budget gating.
@@ -502,6 +509,7 @@ def _available_actions(
     if combat.action_remaining:
         actions.append("attack")
         actions.append("interact")
+        actions.append("pickup")
     actions.append("end_turn")
     # Voluntary turn mode can be exited only when no hostiles are present;
     # the toggle is still surfaced so the agent can attempt it. The app

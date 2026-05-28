@@ -4,11 +4,13 @@ from src.core.actions import (
     Action,
     CharacterCreationCommand,
     CloseInventory,
+    DropItemAttempt,
     EndTurn,
     GameOverChoice,
     InteractAttempt,
     InventoryRequest,
     MoveAttempt,
+    PickupAttempt,
     QuitConfirm,
     QuitRequest,
     StartChoice,
@@ -76,6 +78,9 @@ def map_key(
     if ui_mode is UIMode.inventory:
         if key_name in ("i", "q", "b"):
             return CloseInventory()
+        # `d` is handled directly in App.handle_key because picking
+        # which item to drop needs to read the world inventory. We
+        # return None here so the App layer can resolve it.
         return None
 
     if ui_mode is UIMode.character_creation:
@@ -104,6 +109,8 @@ def map_key(
             return InventoryRequest()
         if key_name == "e":
             return InteractAttempt(actor=player, dx=0, dy=0)
+        if key_name == ",":
+            return PickupAttempt(actor=player)
         if key_name in MOVE_KEYS:
             dx, dy = MOVE_KEYS[key_name]
             return MoveAttempt(actor=player, dx=dx, dy=dy)

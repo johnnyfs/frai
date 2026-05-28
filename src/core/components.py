@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from .character_creation import CharacterSheet
+from .loot import DropTable
 
 
 class AIBehaviorType(str, Enum):
@@ -142,6 +143,33 @@ class Container:
     """
 
     is_open: bool = False
+
+
+@dataclass(slots=True)
+class LootDrop:
+    """A drop table attached to an entity (typically a monster).
+
+    On death, the kill-effect handler rolls ``table`` and spawns a
+    corpse with the rolled contents at the dying entity's position.
+    Attaching ``LootDrop`` to a non-creature entity is legal — any
+    ``KillEntity`` against it will run the same pipeline — but corpses
+    only make sense for creatures today.
+    """
+
+    table: DropTable
+
+
+@dataclass(slots=True)
+class Corpse:
+    """Marker for an entity that was once a creature.
+
+    Corpses are persistent ground entities with an ``Inventory`` holding
+    the rolled loot. They are not removed when emptied so the player has
+    a visible record that someone died here. The ``creature_kind`` field
+    is informational and survives a save/load.
+    """
+
+    creature_kind: str = ""
 
 
 @dataclass(slots=True)

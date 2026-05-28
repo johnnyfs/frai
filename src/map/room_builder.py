@@ -7,7 +7,15 @@ from src.core.creatures import (
     creature_for_key,
     weapon_for_creature,
 )
-from src.core.components import BlocksMovement, Faction, Name, PlayerControlled, Position, Presentation
+from src.core.components import (
+    BlocksMovement,
+    Faction,
+    LootDrop,
+    Name,
+    PlayerControlled,
+    Position,
+    Presentation,
+)
 from src.core.config import PLAYFIELD_WIDTH
 from src.core.entity import EntityId
 from src.core.world import World
@@ -143,4 +151,6 @@ def _add_creature(world: World, creature_key: str, x: int, y: int) -> EntityId:
     world.factions.add(entity, Faction("enemy"))
     world.combat_stats.add(entity, combat_stats_for_creature(spec))
     world.weapons.add(entity, weapon_for_creature(spec))
+    if spec.loot.entries:
+        world.loot_drops.add(entity, LootDrop(table=spec.loot))
     return entity
