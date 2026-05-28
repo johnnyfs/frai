@@ -103,6 +103,7 @@ class Trap:
     is_armed: bool = True
     disarm_dc: int = 10
     damage: int = 1
+    reusable: bool = False
 
 
 @dataclass(slots=True)

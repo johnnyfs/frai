@@ -6,6 +6,7 @@ from src.core.effects import (
     EmitMessage,
     OpenEntity,
     RemoveBlocker,
+    TriggerTrap,
     UnlockEntity,
 )
 from src.systems.interaction_system import InteractionSystem
@@ -78,7 +79,7 @@ def test_trap_triggers_damage_on_failed_disarm() -> None:
 
     result = interaction.handle(InteractAttempt(actor, 1, 0, check_result=7), world)
 
-    assert result.effects == [DamageEntity(actor, 3), EmitMessage("Trap triggered.")]
+    assert result.effects == [DamageEntity(actor, 3), EmitMessage("Trap triggered."), TriggerTrap(trap)]
 
 
 def test_trap_can_be_disarmed() -> None:

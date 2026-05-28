@@ -28,10 +28,11 @@ from src.core.effects import (
     SetCharacterSheet,
     SetMode,
     DisarmTrap,
+    TriggerTrap,
     UnlockEntity,
 )
 from src.core.entity import EntityId
-from src.core.actions import EndTurn, MoveAttempt, ToggleTurnMode
+from src.core.actions import EndTurn, InteractAttempt, MoveAttempt, ToggleTurnMode
 from src.core.modes import GameMode, GameOverMode, NormalMode, StartChoiceMode
 from src.core.party import CompanionDefinition, companion_definitions_for_player_class
 from src.core.turns import (
@@ -132,6 +133,10 @@ class App:
                 trap = self.world.traps.get(effect.entity)
                 if trap is not None:
                     trap.is_armed = False
+            elif isinstance(effect, TriggerTrap):
+                trap = self.world.traps.get(effect.entity)
+                if trap is not None and not trap.reusable:
+                    trap.is_armed = False
             elif isinstance(effect, RemoveBlocker):
                 self.world.blockers.values.pop(effect.entity, None)
         if messages:
@@ -149,6 +154,10 @@ class App:
             return
         if isinstance(action, ToggleTurnMode) and isinstance(self.mode, NormalMode):
             self.apply_effects(self._toggle_turn_mode())
+            self.sync_major_mode()
+            return
+        if isinstance(action, InteractAttempt) and isinstance(self.mode, NormalMode):
+            self.apply_effects(self._handle_interaction(action))
             self.sync_major_mode()
             return
         if isinstance(action, MoveAttempt) and isinstance(self.mode, NormalMode):
@@ -186,6 +195,15 @@ class App:
                 else "Exited turn-based mode."
             )
         ]
+
+    def _handle_interaction(self, action: InteractAttempt) -> list[Effect]:
+        if is_turn_based(self.major_mode):
+            if self.activation.action_used:
+                return [EmitMessage("Action already used.")]
+            effects = self.dispatcher.dispatch(action, self.world)
+            self.activation.spend_action()
+            return effects
+        return self.dispatcher.dispatch(action, self.world)
 
     def _handle_explore_move(self, action: MoveAttempt) -> list[Effect]:
         displacement = _party_displacement(self.world, self.party, action)

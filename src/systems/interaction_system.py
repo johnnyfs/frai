@@ -9,6 +9,7 @@ from src.core.effects import (
     EmitMessage,
     OpenEntity,
     RemoveBlocker,
+    TriggerTrap,
     UnlockEntity,
 )
 from src.core.entity import EntityId
@@ -52,10 +53,13 @@ def _resolve_interaction(
     if trap is not None and trap.is_armed:
         if _passes_check(action.check_result, trap.disarm_dc):
             return [DisarmTrap(target), EmitMessage("Trap disarmed.")]
-        return [
+        effects: list[Effect] = [
             DamageEntity(action.actor, trap.damage),
             EmitMessage("Trap triggered."),
         ]
+        if not trap.reusable:
+            effects.append(TriggerTrap(target))
+        return effects
 
     lock = world.locks.get(target)
     if lock is not None and lock.is_locked:

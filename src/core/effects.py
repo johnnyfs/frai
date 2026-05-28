@@ -66,6 +66,11 @@ class DisarmTrap:
 
 
 @dataclass(frozen=True, slots=True)
+class TriggerTrap:
+    entity: EntityId
+
+
+@dataclass(frozen=True, slots=True)
 class RemoveBlocker:
     entity: EntityId
 
@@ -82,5 +87,6 @@ Effect: TypeAlias = (
     | OpenEntity
     | UnlockEntity
     | DisarmTrap
+    | TriggerTrap
     | RemoveBlocker
 )
