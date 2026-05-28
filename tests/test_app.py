@@ -217,6 +217,74 @@ def test_explore_mode_displaces_party_member() -> None:
     assert app.messages.current == "You displaced companion."
 
 
+def test_player_can_enter_and_exit_voluntary_turn_mode_without_hostiles() -> None:
+    app = create_app()
+    app.handle_key(ord("y"))
+    player, companion = app.party
+    for entity in list(app.world.creatures.values):
+        app.world.remove_entity(entity)
+    app.sync_major_mode()
+
+    app.handle_key(ord("t"))
+
+    assert app.major_mode == "turn"
+    assert app.voluntary_turn_based is True
+    assert app.active_actor() == player
+    assert app.messages.current == "Entered turn-based mode."
+
+    app.handle_key(ord(" "))
+
+    assert app.active_actor() == companion
+
+    app.handle_key(ord("t"))
+
+    assert app.major_mode == "explore"
+    assert app.voluntary_turn_based is False
+    assert app.active_actor() == player
+    assert app.messages.current == "Exited turn-based mode."
+
+
+def test_voluntary_turn_mode_uses_battle_movement_budget_without_enemies() -> None:
+    app = create_app()
+    app.handle_key(ord("y"))
+    player, companion = app.party
+    for entity in list(app.world.creatures.values):
+        app.world.remove_entity(entity)
+    app.world.positions.require(player).x = 160
+    app.world.positions.require(player).y = 40
+    app.world.positions.require(companion).x = 170
+    app.world.positions.require(companion).y = 40
+    app.sync_major_mode()
+
+    app.handle_key(ord("t"))
+    app.handle_key(ord("h"))
+
+    assert app.major_mode == "turn"
+    assert app.world.positions.require(player).x == 159
+    assert app.activation.movement_used == 3
+
+
+def test_enemy_presence_forces_battle_and_exit_waits_until_hostiles_are_gone() -> None:
+    app = create_app()
+    app.handle_key(ord("y"))
+    frog = next(iter(app.world.creatures.values))
+    for entity in list(app.world.creatures.values):
+        if entity != frog:
+            app.world.remove_entity(entity)
+    app.sync_major_mode()
+
+    app.handle_key(ord("t"))
+
+    assert app.major_mode == "battle"
+    assert app.voluntary_turn_based is False
+    assert app.messages.current == "Cannot exit turn-based mode while hostiles are present."
+
+    app.apply_effects([KillEntity(frog)])
+    app.sync_major_mode()
+
+    assert app.major_mode == "explore"
+
+
 def test_killing_last_hostile_switches_to_explore_mode() -> None:
     app = create_app()
     app.handle_key(ord("y"))

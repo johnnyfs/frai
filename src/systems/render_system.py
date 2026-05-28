@@ -183,11 +183,11 @@ def _status_line(
     movement_total: float = 30.0,
     major_mode: str = "explore",
 ) -> str:
-    mode_label = major_mode.capitalize()
+    mode_label = "Turn" if major_mode == "turn" else major_mode.capitalize()
     label = _status_label(world, observer, party)
     movement = (
         f"  Move {_format_feet(movement_used)}/{_format_feet(movement_total)}"
-        if major_mode == "battle"
+        if major_mode in ("battle", "turn")
         else ""
     )
     stats = world.combat_stats.get(observer)

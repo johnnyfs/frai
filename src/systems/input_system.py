@@ -11,6 +11,7 @@ from src.core.actions import (
     QuitConfirm,
     QuitRequest,
     StartChoice,
+    ToggleTurnMode,
 )
 from src.core.entity import EntityId
 from src.core.modes import (
@@ -89,6 +90,8 @@ def map_key(key: int, mode: GameMode, player: EntityId) -> Action | None:
     if isinstance(mode, NormalMode):
         if key_name == " ":
             return EndTurn()
+        if key_name == "t":
+            return ToggleTurnMode()
         if key_name == "i":
             return InventoryRequest()
         if key_name in MOVE_KEYS:

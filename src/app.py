@@ -27,13 +27,14 @@ from src.core.effects import (
     SetMode,
 )
 from src.core.entity import EntityId
-from src.core.actions import AttackAttempt, EndTurn, MoveAttempt
+from src.core.actions import AttackAttempt, EndTurn, MoveAttempt, ToggleTurnMode
 from src.core.modes import GameMode, GameOverMode, NormalMode, StartChoiceMode
 from src.core.turns import (
     ActivationState,
     MajorMode,
     MOVEMENT_TOTAL_FEET,
-    major_mode_for_hostiles,
+    is_turn_based,
+    major_mode_for_state,
     movement_cost as movement_cost_for_delta,
 )
 from src.core.world import World
@@ -63,6 +64,7 @@ class App:
     messages: MessageState = field(default_factory=MessageState)
     mode: GameMode = field(default_factory=StartChoiceMode)
     major_mode: MajorMode = "explore"
+    voluntary_turn_based: bool = False
     running: bool = True
 
     @property
@@ -70,7 +72,7 @@ class App:
         return self.active_actor()
 
     def active_actor(self) -> EntityId:
-        if self.major_mode == "explore":
+        if not is_turn_based(self.major_mode):
             return self.player
         return self.party[self.active_party_index]
 
@@ -111,11 +113,15 @@ class App:
         old_mode = self.mode
         action = map_key(key, self.mode, self.active_actor())
         if isinstance(action, EndTurn) and isinstance(self.mode, NormalMode):
-            if self.major_mode == "battle":
+            if is_turn_based(self.major_mode):
                 self.advance_party_turn()
             return
+        if isinstance(action, ToggleTurnMode) and isinstance(self.mode, NormalMode):
+            self.apply_effects(self._toggle_turn_mode())
+            self.sync_major_mode()
+            return
         if isinstance(action, MoveAttempt) and isinstance(self.mode, NormalMode):
-            if self.major_mode == "battle":
+            if is_turn_based(self.major_mode):
                 self.apply_effects(self._handle_active_move(action))
             else:
                 self.apply_effects(self._handle_explore_move(action))
@@ -128,13 +134,29 @@ class App:
         self.sync_major_mode()
 
     def sync_major_mode(self) -> None:
-        next_mode = major_mode_for_hostiles(_hostiles_in_sight(self.world, self.party))
+        next_mode = major_mode_for_state(
+            _hostiles_in_sight(self.world, self.party),
+            self.voluntary_turn_based,
+        )
         if next_mode == self.major_mode:
             return
         self.major_mode = next_mode
         self.activation = ActivationState()
-        if next_mode == "explore":
+        if not is_turn_based(next_mode):
             self.active_party_index = 0
+
+    def _toggle_turn_mode(self) -> list[Effect]:
+        if _hostiles_in_sight(self.world, self.party):
+            self.voluntary_turn_based = False
+            return [EmitMessage("Cannot exit turn-based mode while hostiles are present.")]
+        self.voluntary_turn_based = not self.voluntary_turn_based
+        return [
+            EmitMessage(
+                "Entered turn-based mode."
+                if self.voluntary_turn_based
+                else "Exited turn-based mode."
+            )
+        ]
 
     def _handle_explore_move(self, action: MoveAttempt) -> list[Effect]:
         displacement = _party_displacement(self.world, self.party, action)
@@ -241,6 +263,7 @@ class App:
         self.party = party
         self.active_party_index = 0
         self.activation = ActivationState()
+        self.voluntary_turn_based = False
         self.major_mode = "explore"
         self.mode = StartChoiceMode()
         self.messages.emit("")
@@ -270,7 +293,7 @@ def create_app(width: int = WORLD_WIDTH, height: int = WORLD_HEIGHT) -> App:
         party=party,
         active_party_index=0,
         dispatcher=dispatcher,
-        major_mode=major_mode_for_hostiles(_hostiles_in_sight(built.world, party)),
+        major_mode=major_mode_for_state(_hostiles_in_sight(built.world, party)),
     )
 
 

@@ -45,6 +45,25 @@ def test_status_line_labels_party_members_by_roster_order() -> None:
     )
 
 
+def test_status_line_shows_voluntary_turn_mode_movement() -> None:
+    app = create_app()
+    app.handle_key(ord("y"))
+    companion = app.party[1]
+    stats = app.world.combat_stats.require(companion)
+    character_class = app.world.characters.require(companion).sheet.character_class
+
+    assert _status_line(
+        app.world,
+        companion,
+        app.party,
+        movement_used=3,
+        major_mode="turn",
+    ) == (
+        f"Turn  Party Member 1 {character_class}  HP {stats.hit_points}/{stats.max_hit_points}  "
+        f"AC {stats.armor_class}  Move 3/30"
+    )
+
+
 def test_inventory_lines_list_worn_armor_and_weapon_in_hand() -> None:
     app = create_app()
     app.handle_key(ord("c"))
