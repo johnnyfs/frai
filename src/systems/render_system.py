@@ -78,6 +78,9 @@ def render(
     play_mode: PlayMode = PlayMode.explore,
     character_creation_state: CharacterCreationState | None = None,
     memory: PartyMemory | None = None,
+    targeting_cursor: tuple[int, int] | None = None,
+    targeting_origin: tuple[int, int] | None = None,
+    targeting_range: int = 0,
 ) -> None:
     screen.clear()
     layout = Layout(width=screen.width, height=screen.height)
@@ -133,6 +136,20 @@ def render(
         ),
         layout.origin_x,
     )
+    # M20 targeting overlay: when the play screen is hosting a targeting
+    # modal, draw a highlight on the cursor cell and park the terminal
+    # cursor there so the player sees their selection. The cursor is a
+    # projection — the world has no idea targeting is up.
+    if ui_mode is UIMode.targeting and targeting_cursor is not None:
+        cursor_screen = _world_to_screen(
+            layout, targeting_cursor, viewport_x, viewport_y
+        )
+        if cursor_screen is not None:
+            screen.draw_char(cursor_screen[0], cursor_screen[1], "X")
+            screen.move_cursor(*cursor_screen)
+            screen.refresh()
+            return
+
     focus_position = _focus_screen_position(world, layout, focus_entity, viewport_x, viewport_y)
     if focus_position is not None:
         screen.move_cursor(*focus_position)
@@ -219,6 +236,24 @@ def _viewport_origin(world: World, layout: Layout, focus: EntityId) -> tuple[int
     origin_x = min(max(0, position.x - layout.playfield_width // 2), max_x)
     origin_y = min(max(0, position.y - layout.playfield_height // 2), max_y)
     return origin_x, origin_y
+
+
+def _world_to_screen(
+    layout: Layout,
+    position: tuple[int, int],
+    viewport_x: int,
+    viewport_y: int,
+) -> tuple[int, int] | None:
+    """Translate a world ``(x, y)`` to ``(screen_x, screen_y)`` if on-screen."""
+
+    screen_x = layout.origin_x + position[0] - viewport_x
+    screen_y = layout.map_top + position[1] - viewport_y
+    if not (
+        layout.origin_x <= screen_x < layout.origin_x + layout.playfield_width
+        and layout.map_top <= screen_y <= layout.map_bottom
+    ):
+        return None
+    return screen_x, screen_y
 
 
 def _focus_screen_position(
