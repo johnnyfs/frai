@@ -88,7 +88,7 @@ Architecture direction:
 | M13 | NPC and minimal dialogue                           | M6, M8                      | pending           | pending    |
 | M14 | Quest path                                         | M8, M10, M11, M12, M13      | pending           | pending    |
 | M15 | Boss/villain and dungeon balancing                 | M10, M11, M14               | pending           | pending    |
-| M16 | Save/restore architecture                          | M1, M5, M8, M12             | pending           | in review  |
+| M16 | Save/restore architecture                          | M1, M5, M8, M12             | #67               | complete   |
 | M17 | UI polish for playtest                             | M3, M4, M8, M12, M13, M16   | pending           | pending    |
 | M18 | End-to-end integration confidence                  | M14, M15, M16, M17          | pending           | pending    |
 | M19 | Vision, lighting, LOS, and memory rendering        | M1, M2, M7                  | #54               | complete   |
