@@ -173,6 +173,30 @@ def test_turn_advance_resets_resources_without_dropping_grants() -> None:
     assert app.activation.extra_actions_total == 1
 
 
+def test_inventory_mode_does_not_reset_action_economy() -> None:
+    app = create_app()
+    app.handle_key(ord("y"))
+    frog = next(iter(app.world.creatures.values))
+    for entity in list(app.world.creatures.values):
+        if entity != frog:
+            app.world.remove_entity(entity)
+    app.sync_major_mode()
+    app.activation.extra_actions_total = 1
+    app.activation.spend_action()
+    app.activation.spend_bonus_action()
+    app.activation.spend_reaction()
+    app.activation.spend_extra_action()
+
+    app.handle_key(ord("i"))
+    app.handle_key(ord("i"))
+
+    assert app.activation.action_used is True
+    assert app.activation.bonus_action_used is True
+    assert app.activation.reaction_used is True
+    assert app.activation.extra_actions_used == 1
+    assert app.activation.extra_actions_total == 1
+
+
 def test_movement_spends_budget_and_blocks_when_exhausted() -> None:
     app = create_app()
     app.handle_key(ord("y"))

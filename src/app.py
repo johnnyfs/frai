@@ -110,7 +110,6 @@ class App:
             self.messages.advance()
             return
         self.sync_major_mode()
-        old_mode = self.mode
         action = map_key(key, self.mode, self.active_actor())
         if isinstance(action, EndTurn) and isinstance(self.mode, NormalMode):
             if is_turn_based(self.major_mode):
@@ -129,8 +128,6 @@ class App:
             return
         effects = self.dispatcher.dispatch(action, self.world)
         self.apply_effects(effects)
-        if old_mode != self.mode:
-            self.activation = ActivationState()
         self.sync_major_mode()
 
     def sync_major_mode(self) -> None:
