@@ -38,6 +38,7 @@ from src.core.entity import EntityId
 from src.core.factions import AggroOverride, AggroOverrideList, FactionId, Relation
 from src.core.loot import DropTable, GoldDrop, ItemDrop
 from src.core.spells import SpellList, SpellSlots
+from src.core.stealth import AwarenessTracker
 from src.core.time import Schedule, ScheduledEvent, WorldTime
 from src.map.tiles import OUTSIDE, Tile, tile_from_token, tile_token
 
@@ -126,6 +127,9 @@ class World:
     boss_markers: ComponentStore[BossMarker] = field(
         default_factory=lambda: ComponentStore({})
     )
+    awareness_trackers: ComponentStore[AwarenessTracker] = field(
+        default_factory=lambda: ComponentStore({})
+    )
     clock: WorldTime = field(default_factory=WorldTime)
     schedule: Schedule = field(default_factory=Schedule)
 
@@ -207,6 +211,7 @@ class World:
             ("npcs", self.npcs),
             ("npc_dialogues", self.npc_dialogues),
             ("boss_markers", self.boss_markers),
+            ("awareness_trackers", self.awareness_trackers),
         ]
 
     def name_for(self, entity: EntityId) -> str:
@@ -363,6 +368,8 @@ def _component_to_dict(component: Any) -> Any:
         return {"tree": component.tree.to_dict()}
     if isinstance(component, BossMarker):
         return {"token": component.token}
+    if isinstance(component, AwarenessTracker):
+        return component.to_dict()
     if is_dataclass(component):
         return asdict(component)
     # Fallback: best-effort string conversion. Should never trip in
@@ -465,6 +472,8 @@ def _component_from_dict(name: str, payload: Any) -> Any:
                 relation = Relation.HOSTILE
             entries.append(AggroOverride(target=target, relation=relation))
         return AggroOverrideList(overrides=entries)
+    if name == "awareness_trackers":
+        return AwarenessTracker.from_dict(payload if isinstance(payload, dict) else {})
     return None
 
 

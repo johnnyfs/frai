@@ -360,6 +360,28 @@ def _build_spell_encounter(_app: App, rng: random.Random | None = None) -> App:
     )
 
 
+def _build_stealth_encounter(_app: App, rng: random.Random | None = None) -> App:
+    """Rogue party leader with a kobold five tiles east; M23 stealth smoke.
+
+    The party leader is forced to a Rogue sheet so the player has
+    Stealth proficiency for the `z` sneak roll. The hostile is parked
+    far enough away that the party isn't auto-forced into turn-based
+    mode immediately — the playtester can attempt a sneak, then a
+    perception probe, before the kobold closes.
+    """
+
+    def populate(room: FixtureRoom, player: EntityId, _party: list[EntityId]) -> None:
+        px, py = room.world.positions.require(player).x, room.world.positions.require(player).y
+        spawn_kobold(room.world, px + 5, py)
+
+    rng = rng if rng is not None else _fixture_rng()
+    return make_fixture_app(
+        rng=rng,
+        populate=populate,
+        sheet=force_rogue_sheet(rng),
+    )
+
+
 def _build_open_terrain(_app: App, rng: random.Random | None = None) -> App:
     # Large empty room for autowalk-to-bound: no hostiles, no doors.
     # The companions are explicitly parked along the south wall so the
@@ -511,6 +533,12 @@ _FIXTURES: tuple[tuple[str, str, Callable[[App], App], tuple[str, ...]], ...] = 
         "M14 vertical slice: Captain Tane (east) + kobold warlord (west).",
         _build_quest_path,
         ("Captain Tane", "kobold warlord"),
+    ),
+    (
+        "stealth_encounter",
+        "Rogue leader with a kobold five tiles east; M23 sneak/perception smoke.",
+        _build_stealth_encounter,
+        ("kobold",),
     ),
 )
 

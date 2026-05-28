@@ -12,9 +12,11 @@ from src.core.actions import (
     InteractAttempt,
     InventoryRequest,
     MoveAttempt,
+    PerceptionAttempt,
     PickupAttempt,
     QuitConfirm,
     QuitRequest,
+    SneakAttempt,
     SpellMenuChoice,
     SpellMenuRequest,
     StartChoice,
@@ -119,6 +121,10 @@ def map_key(
             return ExamineRequest(actor=player)
         if key_name == "s":
             return SpellMenuRequest(actor=player)
+        if key_name == "z":
+            return SneakAttempt(actor=player)
+        if key_name == "p":
+            return PerceptionAttempt(actor=player)
         if key_name in MOVE_KEYS:
             dx, dy = MOVE_KEYS[key_name]
             return MoveAttempt(actor=player, dx=dx, dy=dy)

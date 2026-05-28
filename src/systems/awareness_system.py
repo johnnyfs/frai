@@ -34,6 +34,7 @@ predicate from the party's perspective.
 """
 
 from src.core.components import Faction
+from src.core.conditions import ConditionKind
 from src.core.entity import EntityId
 from src.core.factions import (
     DEFAULT_RELATION_TABLE,
@@ -41,6 +42,7 @@ from src.core.factions import (
     Relation,
     RelationTable,
 )
+from src.core.stealth import AwarenessState
 from src.core.world import World
 
 
@@ -55,16 +57,44 @@ def is_alive(world: World, entity: EntityId) -> bool:
 def is_aware_of(world: World, observer: EntityId, target: EntityId) -> bool:
     """True if ``observer`` should be considered to know about ``target``.
 
-    Today: any alive, positioned entity is "in sight" of any observer.
-    M19 narrowed the party's view through the memory frontier; this
-    predicate stays permissive because non-party actors (AI) still scan
-    the whole world. M23 will gate this on perception checks.
+    Resolution order (M23):
+
+    1. Self / dead / unpositioned targets are never "aware".
+    2. If the observer carries an :class:`AwarenessTracker` and its
+       recorded state about ``target`` is ``AWARE`` -> True (the
+       observer has been alerted, perception fired, etc.). This wins
+       over visibility — an alerted guard remembers the intruder even
+       behind a corner.
+    3. If the target carries the ``hidden`` condition AND the observer
+       is not already aware -> False (stealth wins).
+    4. Otherwise, fall back to "alive and positioned" (the pre-M23
+       semantics). This keeps the predicate permissive for hostiles
+       that don't yet carry trackers — the M23 scope wires trackers
+       on a per-content basis rather than retrofitting every existing
+       enemy.
+
+    The :class:`AwarenessTracker` lookup is per-observer, so two
+    guards in the same room can disagree about an intruder. The
+    ``hidden`` check is global today (a hidden actor is hidden from
+    everyone who isn't already aware); a per-observer hidden bit is a
+    follow-up.
     """
     if observer == target:
         return False
     if not world.positions.has(observer):
         return False
-    return is_alive(world, target)
+    if not is_alive(world, target):
+        return False
+
+    tracker = world.awareness_trackers.get(observer)
+    if tracker is not None and tracker.state_of(target) is AwarenessState.AWARE:
+        return True
+
+    target_conditions = world.conditions.get(target)
+    if target_conditions is not None and target_conditions.has(ConditionKind.HIDDEN):
+        return False
+
+    return True
 
 
 def _effective_faction(world: World, entity: EntityId) -> Faction | None:

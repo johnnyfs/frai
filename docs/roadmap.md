@@ -95,7 +95,7 @@ Architecture direction:
 | M20 | Targeting mode                                     | M4, M19                     | #75               | complete   |
 | M21 | Examine and look command                           | M19, M20                    | #24               | complete   |
 | M22 | Pathing / auto-walk                                | M3, M7, M19                 | #62               | complete   |
-| M23 | Stealth, noise, and perception                     | M4, M19, M26, M28           | #25               | unassigned |
+| M23 | Stealth, noise, and perception                     | M4, M19, M26, M28           | #25               | in review  |
 | M24 | Conditions, statuses, and durations                | M4, M27                     | #66               | complete   |
 | M25 | Leveling, XP, and rewards                          | M5, M10, M14                | #27               | unassigned |
 | M26 | Skill checks and DC checks                         | M5                          | #50               | complete   |

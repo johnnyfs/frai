@@ -94,7 +94,9 @@ from src.systems.movement_system import (
 )
 from src.systems.obstruction_system import ObstructionSystem
 from src.systems.quit_system import QuitSystem
+from src.systems.spell_system import SpellSystem
 from src.systems.start_system import StartSystem
+from src.systems.stealth_system import StealthSystem
 
 
 # Default fixture-room dimensions. Big enough for a small encounter +
@@ -838,6 +840,8 @@ def make_fixture_app(
             QuitSystem(),
             InteractionSystem(rng=rng),
             LootSystem(),
+            SpellSystem(rng=rng),
+            StealthSystem(rng=rng),
             movement,
             combat,
         ]

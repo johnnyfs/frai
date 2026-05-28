@@ -76,7 +76,7 @@ _DIRECTION_VECTORS: dict[str, tuple[int, int]] = {
 # Single-character non-movement keys recognised by the script. The
 # values are the names of the dataclasses they parse to — keeping the
 # table here means new commands need exactly one parser edit.
-_SINGLE_KEY_COMMANDS = frozenset({"e", ",", "i", "r", "x", "?", ".", "s"})
+_SINGLE_KEY_COMMANDS = frozenset({"e", ",", "i", "r", "x", "?", ".", "s", "z", "p"})
 
 
 # Multi-character "word" tokens that map to specific commands. Spelled
@@ -165,6 +165,16 @@ class SpellMenuCommand:
 
 
 @dataclass(frozen=True, slots=True)
+class SneakCommand:
+    """`z` — attempt a stealth roll for the active actor (M23)."""
+
+
+@dataclass(frozen=True, slots=True)
+class PerceiveCommand:
+    """`p` — attempt a perception roll for the active actor (M23)."""
+
+
+@dataclass(frozen=True, slots=True)
 class ConfirmCommand:
     """``Enter`` — confirm the current modal."""
 
@@ -184,6 +194,8 @@ Command: TypeAlias = (
     | HelpCommand
     | WaitCommand
     | SpellMenuCommand
+    | SneakCommand
+    | PerceiveCommand
     | ConfirmCommand
     | CancelCommand
 )
@@ -318,6 +330,8 @@ _SINGLE_KEY_FACTORIES: dict[str, type[Command]] = {
     "?": HelpCommand,
     ".": WaitCommand,
     "s": SpellMenuCommand,
+    "z": SneakCommand,
+    "p": PerceiveCommand,
 }
 
 
